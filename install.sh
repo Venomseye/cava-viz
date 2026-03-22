@@ -9,6 +9,6 @@ g++ visualizer.cpp -o visualizer \
     -lncursesw -lpulse-simple -lpulse -lfftw3 -lm -O2 -std=c++17
 
 echo "Installing to /usr/local/bin..."
-sudo install -m755 visualizer /usr/local/bin/visualizer
+sudo install -m755 visualizer /usr/local/bin/viz
 
 echo "Done! Run with: visualizer"
