@@ -4,7 +4,7 @@ A real-time terminal audio visualizer for Linux using PulseAudio + FFTW.
 
 ## Install
 ```bash
-git clone https://github.com/venomseye/visualizer
+git clone https://github.com/venomseye/cli_visualizer
 cd visualizer
 ./install.sh
 ```
