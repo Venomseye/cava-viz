@@ -1,32 +1,31 @@
-# cli_visualizer
-A high-performance terminal-based audio visualizer built in C++ using ncurses, FFTW, and PulseAudio. The tool captures live system audio and renders a dynamic, real-time frequency spectrum directly in the terminal.
+# Terminal Audio Visualizer
 
+A real-time terminal audio visualizer for Linux using PulseAudio + FFTW.
 
-# Audio Visualizer
-
-Terminal-based audio visualizer using:
-- C++
-- ncurses
-- PulseAudio
-- FFTW
-
-## Build
-
-g++ cli.cpp -o visualizer -lncurses -lpulse-simple -lpulse -lfftw3 -lm -O2 -std=c++17
-
-## Run
-
-./visualizer
+## Install
+```bash
+git clone https://github.com/venomseye/visualizer
+cd visualizer
+./install.sh
+```
 
 ## Controls
 
-- m → toggle mono/stereo
-- q → quit
-- 1 - 4 → bar styles
-- t/T → next/prev theme
-- +/- → sensitivity
-- ] [ → peak fall speed
-- s → toggle peak on/off
-- b → blur/trail on/off
-- r → reset
-- q → quit
+| Key | Action |
+|-----|--------|
+| `1-5` | Switch style |
+| `t` / `T` | Next / Prev theme |
+| `m` | Mono / Stereo |
+| `+` / `-` | Sensitivity |
+| `[` / `]` | Peak fall speed |
+| `s` | Peak dots on/off |
+| `b` | Blur on/off |
+| `r` | Reset |
+| `q` | Quit |
+
+## Themes
+Spectrum · Fire · Ice · Neon · Matrix · Sunset · Ocean · Lava · Aurora · Candy · Toxic · Mono
+
+## Requirements
+- Arch Linux / any PulseAudio distro
+- 256 color terminal with UTF-8
