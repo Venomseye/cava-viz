@@ -11,4 +11,4 @@ g++ visualizer.cpp -o visualizer \
 echo "Installing to /usr/local/bin..."
 sudo install -m755 visualizer /usr/local/bin/viz
 
-echo "Done! Run with: visualizer"
+echo "Done! Run with: viz"
