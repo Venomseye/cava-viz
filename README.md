@@ -30,9 +30,3 @@ g++ cli.cpp -o visualizer -lncurses -lpulse-simple -lpulse -lfftw3 -lm -O2 -std=
 - b → blur/trail on/off
 - r → reset
 - q → quit
-
-HOW TO INSTALL:
-git clone https://github.com/venomseye/visualizer
-cd visualizer
-chmod +x install.sh
-./install.sh
