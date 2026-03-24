@@ -109,19 +109,23 @@ struct Theme {
 
 static const Theme THEMES[] = {
     // name        lo   hi   peak  accent  blur
-    { "Spectrum",  57, 196,  196,   213,   54  }, // violet→red
-    { "Fire",      52, 220,  220,   214,   88  }, // deep red→yellow
-    { "Ice",       17,  51,   51,    45,   18  }, // navy→cyan
-    { "Neon",     201, 226,  220,   201,  128  }, // pink→yellow
-    { "Matrix",    22, 154,  154,    82,   22  }, // dark→bright green
-    { "Sunset",    54, 214,  214,   204,   53  }, // purple→gold
-    { "Ocean",     17,  45,   45,    38,   17  }, // abyss→aqua
-    { "Lava",      88, 202,  202,   160,   52  }, // dark red→orange
-    { "Aurora",    54,  86,   86,   105,   17  }, // indigo→teal
-    { "Candy",    200, 229,  229,   219,  163  }, // pink→yellow
-    { "Toxic",     58, 118,  118,    82,   22  }, // olive→lime
-    { "Mono",     234, 255,  255,   250,  238  }, // near-black→white
+    {"Spectrum", 57, 196, 196, 213, 54},  // violet→red
+    {"Fire", 52, 220, 220, 214, 88},      // deep red→yellow
+    {"Ice", 17, 51, 51, 45, 18},          // navy→cyan
+    {"Neon", 201, 226, 220, 201, 128},    // pink→yellow
+    {"Matrix", 22, 154, 154, 82, 22},     // dark→bright green
+    {"Sunset", 54, 214, 214, 204, 53},    // purple→gold
+    {"Ocean", 17, 45, 45, 38, 17},        // abyss→aqua
+    {"Lava", 88, 202, 202, 160, 52},      // dark red→orange
+    {"Aurora", 54, 86, 86, 105, 17},      // indigo→teal
+    {"Candy", 200, 229, 229, 219, 163},   // pink→yellow
+    {"Toxic", 58, 118, 118, 82, 22},      // olive→lime
+    {"Mono", 234, 255, 255, 250, 238},    // near-black→white
+    {"Mermaid", 164, 213, 213, 219, 126}, // deep magenta → soft pink
+    {"Rose", 197, 225, 218, 211, 161},    // hot pink → pale blush
+    { "Mermaid2", 213, 197, 199, 212, 162 },
 };
+
 static const int N_THEMES = (int)(sizeof(THEMES)/sizeof(THEMES[0]));
 
 // ─── RGB helpers ─────────────────────────────────────────────────────────────
@@ -240,20 +244,23 @@ static Settings loadSettings() {
 // ─── PulseAudio monitor detection ────────────────────────────────────────────
 // Returns RUNNING monitor first, falls back to any monitor.
 // Does NOT require audio to be playing — visualizer works at any time.
+
 static std::string getActiveMonitor() {
-    FILE* fp=popen("pactl list sources short","r");
-    if(!fp) return "";
-    char line[512]; std::string running, fallback;
-    while (fgets(line,sizeof(line),fp)) {
-        std::string s(line);
-        if(s.find(".monitor")==std::string::npos) continue;
-        char name[256]=""; sscanf(line,"%*d %255s",name);
-        if(!name[0]) continue;
-        if(fallback.empty()) fallback=name;
-        if(s.find("RUNNING")!=std::string::npos && running.empty()) running=name;
-    }
+    FILE* fp = popen("pactl get-default-sink", "r");
+    if (!fp) return "";
+
+    char sink[256] = {0};
+    fgets(sink, sizeof(sink), fp);
     pclose(fp);
-    return running.empty() ? fallback : running;
+
+    std::string s(sink);
+
+    // remove newline
+    s.erase(std::remove(s.begin(), s.end(), '\n'), s.end());
+
+    if (s.empty()) return "";
+
+    return s + ".monitor";
 }
 
 // ─── HUD ─────────────────────────────────────────────────────────────────────
