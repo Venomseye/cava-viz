@@ -123,7 +123,7 @@ cli_visualizer/
 
 Settings are auto-saved to:
 - **Linux**: `~/.config/visualizer.conf`
-- 
+  
 ### Keyboard Controls
 ```
 1-5    Visualization styles (Filled, Mirror, Bounce, Classic, ClassicFill)
