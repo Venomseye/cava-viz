@@ -31,7 +31,6 @@ Added complete installation support for Debian-based distributions:
 - ✅ Proper WASAPI detection for Windows
 - ✅ CoreAudio detection for macOS
 - ✅ Better dependency error messages
-- ✅ macOS specific compiler flags (-fPIC)
 - ✅ Cleaner build output with platform info
 
 ---
