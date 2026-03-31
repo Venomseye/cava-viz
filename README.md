@@ -26,10 +26,7 @@ Added complete installation support for Debian-based distributions:
 
 ### 2. **Enhanced CMakeLists.txt**
 **Improvements:**
-- ✅ Platform-specific source file selection (visualizer.cpp vs visualizer-windows.cpp)
 - ✅ Distribution detection on Linux
-- ✅ Proper WASAPI detection for Windows
-- ✅ CoreAudio detection for macOS
 - ✅ Better dependency error messages
 - ✅ Cleaner build output with platform info
 
