@@ -4,15 +4,8 @@ project(cli_visualizer VERSION 1.0.0 LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-if(WIN32)
-    set(PLATFORM "Windows")
-elseif(APPLE)
-    set(PLATFORM "macOS")
-else()
-    set(PLATFORM "Linux")
-endif()
-
-message(STATUS "Detected platform: ${PLATFORM}")
+set(PLATFORM "Linux")
+message(STATUS "Platform: Linux")
 
 find_package(PkgConfig REQUIRED)
 
@@ -50,7 +43,7 @@ find_package(Curses REQUIRED)
 message(STATUS "✓ Curses found: ${CURSES_LIBRARIES}")
 
 # Create executable
-add_executable(viz visualizer.cpp)
+add_executable(viz ${CMAKE_CURRENT_SOURCE_DIR}/visualizer.cpp)
 
 # Include directories
 target_include_directories(viz PRIVATE
@@ -75,16 +68,12 @@ if(HAVE_ALSA)
 endif()
 
 # Compiler flags
-if(MSVC)
-    target_compile_options(viz PRIVATE /O3 /W4 /EHsc)
-else()
-    target_compile_options(viz PRIVATE
-        -O2
-        -std=c++17
-        -Wall
-        -Wextra
-        -Werror=format-security)
-endif()
+target_compile_options(viz PRIVATE
+    -O2
+    -std=c++17
+    -Wall
+    -Wextra
+    -Werror=format-security)
 
 # Preprocessor definitions
 if(HAVE_ALSA)
@@ -101,7 +90,7 @@ message(STATUS "")
 message(STATUS "╔══════════════════════════════════════════════════════════════╗")
 message(STATUS "║          Terminal Audio Visualizer - Build Config            ║")
 message(STATUS "╠══════════════════════════════════════════════════════════════╣")
-message(STATUS "║ Platform              : ${PLATFORM}")
+message(STATUS "║ Platform              : Linux")
 message(STATUS "║")
 message(STATUS "║ Required Dependencies:")
 message(STATUS "║   ✓ FFTW3              : ${FFTW3_LIBRARIES}")
