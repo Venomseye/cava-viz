@@ -1,18 +1,11 @@
-cmake_minimum_required(VERSION 3.15)
+cmake_minimum_required(VERSION 3.10)
 project(cli_visualizer VERSION 1.0.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-if(WIN32)
-    set(PLATFORM "Windows")
-elseif(APPLE)
-    set(PLATFORM "macOS")
-else()
-    set(PLATFORM "Linux")
-endif()
-
-message(STATUS "Detected platform: ${PLATFORM}")
+message(STATUS "Platform: Linux")
+message(STATUS "Source directory: ${PROJECT_SOURCE_DIR}")
 
 find_package(PkgConfig REQUIRED)
 
@@ -30,7 +23,6 @@ if(ALSA_FOUND)
     message(STATUS "✓ ALSA found via pkg-config")
     set(HAVE_ALSA TRUE)
 else()
-    # Try finding ALSA manually
     find_library(ASOUND_LIBRARY asound)
     find_path(ASOUND_INCLUDE_DIR alsa/asoundlib.h)
     if(ASOUND_LIBRARY AND ASOUND_INCLUDE_DIR)
@@ -49,8 +41,16 @@ set(CURSES_NEED_WIDE TRUE)
 find_package(Curses REQUIRED)
 message(STATUS "✓ Curses found: ${CURSES_LIBRARIES}")
 
-# Create executable
-add_executable(viz visualizer.cpp)
+# Verify source file exists - CRITICAL FIX
+set(VIZ_SOURCE "${PROJECT_SOURCE_DIR}/visualizer.cpp")
+message(STATUS "Looking for: ${VIZ_SOURCE}")
+if(NOT EXISTS "${VIZ_SOURCE}")
+    message(FATAL_ERROR "FAILED: visualizer.cpp not found at ${VIZ_SOURCE}")
+endif()
+message(STATUS "✓ Source file confirmed at: ${VIZ_SOURCE}")
+
+# Create executable with absolute path
+add_executable(viz "${VIZ_SOURCE}")
 
 # Include directories
 target_include_directories(viz PRIVATE
@@ -74,17 +74,13 @@ if(HAVE_ALSA)
     target_link_libraries(viz PRIVATE ${ALSA_LIBRARIES})
 endif()
 
-# Compiler flags
-if(MSVC)
-    target_compile_options(viz PRIVATE /O3 /W4 /EHsc)
-else()
-    target_compile_options(viz PRIVATE
-        -O2
-        -std=c++17
-        -Wall
-        -Wextra
-        -Werror=format-security)
-endif()
+# Compiler flags (Linux only)
+target_compile_options(viz PRIVATE
+    -O2
+    -std=c++17
+    -Wall
+    -Wextra
+    -Werror=format-security)
 
 # Preprocessor definitions
 if(HAVE_ALSA)
@@ -101,7 +97,9 @@ message(STATUS "")
 message(STATUS "╔══════════════════════════════════════════════════════════════╗")
 message(STATUS "║          Terminal Audio Visualizer - Build Config            ║")
 message(STATUS "╠══════════════════════════════════════════════════════════════╣")
-message(STATUS "║ Platform              : ${PLATFORM}")
+message(STATUS "║ Platform              : Linux (only)                         ║")
+message(STATUS "║ Source Directory      : ${PROJECT_SOURCE_DIR}")
+message(STATUS "║ Build Directory       : ${CMAKE_BINARY_DIR}")
 message(STATUS "║")
 message(STATUS "║ Required Dependencies:")
 message(STATUS "║   ✓ FFTW3              : ${FFTW3_LIBRARIES}")
@@ -116,11 +114,14 @@ message(STATUS "║   ✗ ALSA               : Not found")
 endif()
 message(STATUS "║")
 message(STATUS "╠══════════════════════════════════════════════════════════════╣")
-message(STATUS "║ Build Commands:")
+message(STATUS "║ Build Instructions:")
 message(STATUS "║")
-message(STATUS "║   mkdir build && cd build")
+message(STATUS "║   USE THIS: bash build.sh")
+message(STATUS "║")
+message(STATUS "║   OR manually:")
+message(STATUS "║   rm -rf build && mkdir build && cd build")
 message(STATUS "║   cmake .. -DCMAKE_BUILD_TYPE=Release")
-message(STATUS "║   cmake --build . -j$(nproc)")
+message(STATUS "║   cmake --build . -j$(nproc) --verbose")
 message(STATUS "║   sudo cmake --install .")
 message(STATUS "║   viz")
 message(STATUS "║")
