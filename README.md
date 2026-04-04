@@ -1,228 +1,191 @@
-# Terminal Audio Visualizer - Platform-Specific Setup Guide
-
-A professional terminal-based audio visualizer with support for multiple operating systems and audio backends.
-
-**Current Status:**
-- ✅ **Arch Linux** - Fully tested and stable (PulseAudio)
-- ✅ **Debian/Ubuntu** - Newly added support
+Here’s a **polished, GitHub-ready README.md** with badges, structure, and a modern look 👇
 
 ---
 
-## What's Fixed/Improved
+# 🎧 CLI Audio Visualizer
 
-### 1. **New Debian/Ubuntu Support**
-Added complete installation support for Debian-based distributions:
-- `install_debian.sh` - Full dependency installation and build
-- `uninstall_debian.sh` - Clean uninstall script
-- Uses `apt-get` instead of `pacman` (Arch-specific)
-- Includes all required development packages
+<p align="center">
+  <b>Fast • Lightweight • Terminal-based Audio Visualizer</b><br>
+  Built with C++17, PulseAudio & ncurses
+</p>
 
-
-**Issues Fixed:**
-- Missing architecture detection for Apple Silicon
-- Better Homebrew bootstrap error handling
-- Improved audio setup documentation
-- Cross-architecture compilation flags
-
-### 2. **Enhanced CMakeLists.txt**
-**Improvements:**
-- ✅ Distribution detection on Linux
-- ✅ Better dependency error messages
-- ✅ Cleaner build output with platform info
+<p align="center">
+  <img src="https://img.shields.io/badge/platform-linux-blue?style=for-the-badge">
+  <img src="https://img.shields.io/badge/build-cmake-green?style=for-the-badge">
+  <img src="https://img.shields.io/badge/license-MIT-orange?style=for-the-badge">
+  <img src="https://img.shields.io/badge/status-stable-brightgreen?style=for-the-badge">
+</p>
 
 ---
 
-## Installation Instructions
+## ✨ Features
 
-### Arch Linux (Original - No Changes)
+* 🎵 Real-time audio visualization (PulseAudio)
+* 🎨 Multiple styles & themes
+* ⚡ Adjustable FPS (10–240, default 60)
+* 🔊 Stereo / Mono modes
+* 💫 Blur & peak effects
+* 📊 VU meter support
+* 💾 Auto-save configuration
+* 🖥️ Clean ncurses UI
+
+---
+
+## 🐧 Supported Platforms
+
+| Platform      | Status      |
+| ------------- | ----------- |
+| Arch Linux    | ✅ Stable    |
+| Debian/Ubuntu | ✅ Supported |
+
+---
+
+## 📦 Installation
+
+### Arch Linux
+
 ```bash
 chmod +x install_linux.sh
 ./install_linux.sh
 ```
 
-### Debian / Ubuntu (New)
+### Debian / Ubuntu
+
 ```bash
 chmod +x install_debian.sh
 sudo ./install_debian.sh
 ```
 
-**Supported versions:**
-- Debian 11+
-- Ubuntu 20.04 LTS+
-- Linux Mint (based on Ubuntu)
-- Pop!_OS
-- Elementary OS
+---
 
+## ⚙️ Controls
+
+| Key     | Action                     |
+| ------- | -------------------------- |
+| `1-5`   | Change visualization style |
+| `t / T` | Next / Previous theme      |
+| `+ / -` | Adjust sensitivity         |
+| `{ / }` | Decrease / Increase FPS    |
+| `m`     | Toggle Mono / Stereo       |
+| `b`     | Blur effect                |
+| `v`     | VU meter                   |
+| `s`     | Peak dots                  |
+| `r`     | Reset settings             |
+| `q`     | Quit                       |
 
 ---
 
-## Directory Structure
+## ⚡ FPS Control (New)
 
-```
-cli_visualizer/
-├── visualizer.cpp                 # Linux(PulseAudio)
-├── CMakeLists.txt                 # Enhanced build configuration
-├── install_linux.sh               # Arch Linux installation
-├── install_debian.sh              # Debian/Ubuntu installation (NEW)
-├── uninstall_linux.sh             # Arch uninstall
-└── uninstall_debian.sh            # Debian uninstall (NEW)
-```
+* Adjustable from **10 → 240 FPS**
+* Default: **60 FPS**
+* Step size: **10**
+* Changes reflected in HUD
+* Saved in config file
 
 ---
 
-## Platform-Specific Features
+## 🧠 Configuration
 
-### Audio Input
-
-| Platform | Backend | Status |
-|----------|---------|--------|
-| Arch Linux | PulseAudio | ✅ Tested & verified |
-| Debian/Ubuntu | PulseAudio | ✅ New (matches Arch) |
-
-### Volume Control
-
-| Platform | Method | Status |
-|----------|--------|--------|
-| Arch Linux | ALSA mixer | ✅ Verified |
-| Debian/Ubuntu | ALSA mixer | ✅ Should work |
-
-### UI Library
-
-| Platform | Library | Notes |
-|----------|---------|-------|
-| Arch Linux | ncurses | ✅ Wide character support |
-| Debian/Ubuntu | ncurses | ✅ Wide character support |
-
----
-
-## Dependencies
-
-### Arch Linux
-- `base-devel` - Build tools
-- `cmake` - Build system
-- `fftw` - FFT library
-- `libpulse` - PulseAudio
-- `alsa-lib` - ALSA (optional)
-- `ncurses` - Terminal UI
-
-### Debian/Ubuntu
-- `build-essential` - Build tools
-- `cmake` - Build system
-- `libfftw3-dev` - FFT library
-- `libpulse-dev` - PulseAudio development
-- `libasound2-dev` - ALSA development
-- `libncurses-dev` - ncurses development
-- `pkg-config` - Package configuration
-
----
-
-## Configuration
-
-Settings are auto-saved to:
-- **Linux**: `~/.config/visualizer.conf`
-  
-### Keyboard Controls
-```
-1-5    Visualization styles (Filled, Mirror, Bounce, Classic, ClassicFill)
-m      Toggle Mono/Stereo mode
-t/T    Next/Previous theme
-+/-    Adjust sensitivity
-[/]    Peak fall speed
-s      Peak dots on/off
-b      Blur/trail effect
-</> Volume control (platform-dependent)
-v      VU meter display
-r      Reset to defaults
-q      Quit
-```
-
----
-
-## Troubleshooting
-
-### "Dependencies not found"
-**Linux**: Make sure your package manager is updated
-```bash
-# Arch
-sudo pacman -Syu
-
-# Debian/Ubuntu
-sudo apt-get update
-```
-
-### "Audio not captured"
-- **Linux**: Ensure PulseAudio is running
-  ```bash
-  pactl info
-  ```
-
-### "CMake configuration failed"
-- Delete `build/` directory and retry
-- Ensure all dependencies are installed
-- Run cmake with verbose output:
-  ```bash
-  cmake .. -DCMAKE_BUILD_TYPE=Release --debug-output
-  ```
-
-## Building from Source Manually
-
-If scripts don't work, you can build manually:
+Auto-saved at:
 
 ```bash
-# Create and enter build directory
+~/.config/visualizer.conf
+```
+
+Includes:
+
+* FPS
+* Sensitivity
+* Theme
+* Effects
+
+---
+
+## 🛠️ Build From Source
+
+```bash
 mkdir build && cd build
-
-# Linux
 cmake .. -DCMAKE_BUILD_TYPE=Release
 cmake --build . -j$(nproc)
 sudo cmake --install .
----
-
-## Uninstallation
-
-### Arch Linux
-```bash
-./uninstall_linux.sh
 ```
 
-### Debian/Ubuntu
+---
+
+## 📚 Dependencies
+
+* FFTW3
+* PulseAudio
+* ALSA *(optional)*
+* ncurses
+* CMake (3.15+)
+
+---
+
+## 🧪 Troubleshooting
+
+### No Audio?
+
 ```bash
-sudo ./uninstall_debian.sh
+pactl info
 ```
-## Testing Recommendations
 
-### For Debian/Ubuntu Users
-1. Test on clean install if possible
-2. Verify all dependencies install correctly
-3. Test audio capture with various PulseAudio configurations
-4. Check ALSA mixer integration for volume control
+### CMake Errors?
 
----
+```bash
+rm -rf build
+cmake .. --debug-output
+```
 
-## Version Information
+### Missing Dependencies?
 
-- **Base Version**: 1.0.0
-- **Build System**: CMake 3.15+
-- **C++ Standard**: C++17
-- **Arch Linux**: Verified working
-- **Debian/Ubuntu**: New support added
----
+```bash
+# Debian/Ubuntu
+sudo apt-get update
 
-## License & Credits
-
-Created as a terminal audio visualization tool with cross-platform support.
-
-**Key Libraries:**
-- FFTW3 - Fast Fourier Transform
-- PulseAudio - Audio capture
-- ALSA - Optional volume control (Linux)
-- ncurses/PDCurses - Terminal UI
+# Arch
+sudo pacman -Syu
+```
 
 ---
 
-## Support Notes
+## 🚀 Roadmap
 
-- **Arch Linux**: Primary development platform, fully tested
-- **Debian/Ubuntu**: Uses same audio backend as Arch (PulseAudio), should work seamlessly
+* [ ] Wayland native integration
+* [ ] PipeWire support
+* [ ] Config UI menu
+* [ ] Plugin system
+* [ ] More visual styles
 
-For issues on untested platforms, please review the specific installation scripts and error messages carefully.
+---
+
+## 🤝 Contributing
+
+Pull requests are welcome!
+Feel free to open issues for bugs or feature requests.
+
+---
+
+## 📜 License
+
+MIT License
+
+---
+
+## ⭐ Support
+
+If you like this project:
+
+* ⭐ Star the repo
+* 🐛 Report bugs
+* 💡 Suggest features
+
+---
+
+If you want next level 🔥, I can also:
+
+* Add a **GIF demo (looks insane for visualizers)**
+* Create a **GitHub release page**
+* Help you **push this properly with tags + versioning**
+* Add **CI/CD (auto build with GitHub Actions)**
