@@ -19,6 +19,7 @@
  * │  t/T   Next / Prev theme                                       │
  * │  +/-   Sensitivity                                             │
  * │  [/]   Peak fall speed                                         │
+ * │  {/}   FPS (decrease/increase)                                 │
  * │  s     Peak dots on/off                                        │
  * │  b     Blur/trail on/off                                       │
  * │  </>   Volume (Master via ALSA)                                │
@@ -50,11 +51,11 @@
 using Clock = std::chrono::steady_clock;
 
 // ─── Audio Parameters ────────────────────────────────────────────────────────
-static const int BUFFER_SIZE = 2048;
+static const int BUFFER_SIZE = 1024;  // Reduced from 2048 for lower latency
 static const int HOP         = 256;
 static const int SAMPLE_RATE = 48000;
 
-// ─── Bar geometry ───────���────────────────────────────────────────────────────
+// ─── Bar geometry ─────────────────────────────────────────────────────────
 static const int BAR_W   = 2;
 static const int BAR_GAP = 1;
 static const int CELL_W  = BAR_W + BAR_GAP;
@@ -79,6 +80,12 @@ static const float SENS_DEFAULT = 1.4f;
 static const float SENS_MIN     = 0.2f;
 static const float SENS_MAX     = 8.0f;
 static const float SENS_STEP    = 0.2f;
+
+// ─── FPS Settings ─────────────────────────────────────────────────────────────
+static const int FPS_DEFAULT = 60;
+static const int FPS_MIN     = 15;
+static const int FPS_MAX     = 240;
+static const int FPS_STEP    = 5;
 
 // ─── HUD ──────────────────────────────────────────────────────────────────────
 static const int HUD_MS = 3500;
@@ -175,7 +182,6 @@ public:
             return;
         }
 
-        // Try multiple element names in order of preference
         if (tryInitElement("Master")) {
             initialized = true;
         } else if (tryInitElement("PCM")) {
@@ -205,7 +211,6 @@ public:
 
         long vol = 0;
 
-        // Try to read from MONO channel
         if (snd_mixer_selem_get_playback_volume(elem, SND_MIXER_SCHN_MONO, &vol) >= 0) {
             // MONO channel succeeded
         } else if (snd_mixer_selem_get_playback_volume(elem, SND_MIXER_SCHN_FRONT_LEFT, &vol) >= 0) {
@@ -213,7 +218,7 @@ public:
         } else if (snd_mixer_selem_get_playback_volume(elem, SND_MIXER_SCHN_FRONT_RIGHT, &vol) >= 0) {
             // FRONT_RIGHT succeeded
         } else {
-            return 50; // Fallback if nothing works
+            return 50;
         }
 
         long range = maxVol - minVol;
@@ -231,7 +236,6 @@ public:
 
         long vol = minVol + (pct * range) / 100;
 
-        // Set all channels
         snd_mixer_selem_set_playback_volume_all(elem, vol);
     }
 
@@ -244,7 +248,6 @@ static ALSAMixer g_mixer;
 
 #else
 
-// ─── Dummy Mixer (No ALSA) ────────────────────────────────────────────────────
 class ALSAMixer {
 public:
     ALSAMixer() {}
@@ -358,6 +361,7 @@ struct Settings {
     int   blur        = 0;
     int   showVU      = 0;
     float peakFall    = PEAK_FALL_DEF;
+    int   fps         = FPS_DEFAULT;
 };
 
 static void saveSettings(const Settings& s) {
@@ -370,7 +374,8 @@ static void saveSettings(const Settings& s) {
       << "showPeaks=" << s.showPeaks << "\n"
       << "blur="      << s.blur      << "\n"
       << "showVU="    << s.showVU    << "\n"
-      << "peakFall="  << s.peakFall  << "\n";
+      << "peakFall="  << s.peakFall  << "\n"
+      << "fps="       << s.fps       << "\n";
 }
 
 static Settings loadSettings() {
@@ -395,6 +400,7 @@ static Settings loadSettings() {
             if (k == "blur")      s.blur      = std::clamp(std::stoi(v), 0, 1);
             if (k == "showVU")    s.showVU    = std::clamp(std::stoi(v), 0, 1);
             if (k == "peakFall")  s.peakFall  = std::clamp(std::stof(v), PEAK_FALL_MIN, PEAK_FALL_MAX);
+            if (k == "fps")       s.fps       = std::clamp(std::stoi(v), FPS_MIN, FPS_MAX);
         } catch (...) {}
     }
     return s;
@@ -438,12 +444,13 @@ static void drawHUD(const Settings& cfg, int cols, float rms, int vol) {
     for (int x = 0; x < cols; x++) mvaddch(0, x, ' ');
     attroff(COLOR_PAIR(C_HUD_BG));
 
-    char sensBuf[8], fallBuf[8], volBuf[8], rmsBuf[8];
+    char sensBuf[8], fallBuf[8], volBuf[8], rmsBuf[8], fpsBuf[8];
     snprintf(sensBuf, sizeof(sensBuf), "%.1f", cfg.sens);
     snprintf(fallBuf, sizeof(fallBuf), "%.0f%%",
         (cfg.peakFall - PEAK_FALL_MIN) / (PEAK_FALL_MAX - PEAK_FALL_MIN) * 100.f);
     snprintf(volBuf, sizeof(volBuf), "%d%%", vol);
     snprintf(rmsBuf, sizeof(rmsBuf), "%.1fdB", 20 * log10(std::max(rms, 0.001f)));
+    snprintf(fpsBuf, sizeof(fpsBuf), "%d", cfg.fps);
 
     struct Tok { const char* key; const char* val; };
     Tok toks[] = {
@@ -455,8 +462,9 @@ static void drawHUD(const Settings& cfg, int cols, float rms, int vol) {
         {"b",    cfg.blur      ? "Bl:✓" : "Bl:✗"},
         {"v",    cfg.showVU    ? "VU:✓" : "VU:✗"},
         {"</>",  volBuf},
-        {"RMS",  rmsBuf},
         {"[/]",  fallBuf},
+        {"{/}",  fpsBuf},
+        {"RMS",  rmsBuf},
         {"r",    "Reset"},
         {"q",    "Quit"},
     };
@@ -509,7 +517,7 @@ int main() {
     Settings cfg = loadSettings();
     applyTheme(cfg.theme);
 
-    // ── PulseAudio Setup ──────────────────────────────────────────────────────
+    // ── PulseAudio Setup (LOW LATENCY) ────────────────────────────────────────
     std::string src = getActiveMonitor();
     if (src.empty()) {
         endwin();
@@ -523,11 +531,11 @@ int main() {
     ss.rate = SAMPLE_RATE;
 
     pa_buffer_attr ba{};
-    ba.maxlength = (uint32_t)-1;
-    ba.tlength   = (uint32_t)-1;
-    ba.prebuf    = (uint32_t)-1;
-    ba.minreq    = (uint32_t)-1;
-    ba.fragsize  = 32;
+    ba.maxlength = 2048;   // Minimal buffer
+    ba.tlength   = 1024;
+    ba.prebuf    = 512;
+    ba.minreq    = 256;
+    ba.fragsize  = 8;      // Ultra-low fragment size for responsiveness
 
     int error = 0;
     pa_simple* pa = pa_simple_new(NULL, "Visualizer", PA_STREAM_RECORD,
@@ -573,6 +581,7 @@ int main() {
     std::vector<float> smooth, mag, peakVal, ballPos, ballVel, blurBuf;
     std::vector<int>   peakTimer;
     float rmsLevel = 0.f;
+    int frameCount = 0;  // Track frames for startup responsiveness
 
     auto rebuild = [&]() {
         getmaxyx(stdscr, rows, cols);
@@ -631,12 +640,12 @@ int main() {
         getmaxyx(stdscr, r, c);
         if (r != rows || c != cols) rebuild();
 
-        // Read audio
+        // Read audio (non-blocking attempt)
         if (pa_simple_read(pa, hop.data(), (int)hop.size() * sizeof(int32_t), &error) < 0) {
             break;
         }
 
-        // Ring buffer update
+        // Ring buffer update - optimized for responsiveness
         const double scale = 1.0 / 2147483648.0;
         memmove(ringL.data(), ringL.data() + HOP, (BUFFER_SIZE - HOP) * sizeof(double));
         memmove(ringR.data(), ringR.data() + HOP, (BUFFER_SIZE - HOP) * sizeof(double));
@@ -656,7 +665,7 @@ int main() {
         }
         rmsLevel += std::sqrt(sumSq / (HOP * 2)) * 0.1f;
 
-        // Window + FFT
+        // Window + FFT - process immediately for low latency
         for (int i = 0; i < BUFFER_SIZE; i++) {
             inL[i] = ringL[i] * win[i];
             inR[i] = ringR[i] * win[i];
@@ -689,11 +698,13 @@ int main() {
             mag[i] = std::clamp(val, 0.f, 1.f);
         }
 
-        // EMA + peak + blur + bounce
+        // EMA + peak + blur + bounce - faster attack for quick response
         for (int i = 0; i < numBars; i++) {
             float m = mag[i];
             float& s = smooth[i];
-            s = (m > s) ? s * ATTACK + m * (1.f - ATTACK) : s * DECAY + m * (1.f - DECAY);
+            // Faster attack during startup frames
+            float attack = (frameCount < 10) ? 0.7f : ATTACK;
+            s = (m > s) ? s * attack + m * (1.f - attack) : s * DECAY + m * (1.f - DECAY);
 
             float& bl = blurBuf[i];
             if (s > bl)
@@ -807,7 +818,6 @@ int main() {
                 if (style == TRADITIONAL) {
                     drawBarUp(x, bw, h, bh, cfg.blur);
                 } else {
-                    // CLASSIC_FILLED
                     if (cfg.blur && bh > 0) {
                         attron(COLOR_PAIR(gradTable[0]));
                         for (int y = 0; y < bh; y++) {
@@ -991,6 +1001,12 @@ int main() {
                 case ']':
                     cfg.peakFall = std::min(cfg.peakFall + PEAK_FALL_STEP, PEAK_FALL_MAX);
                     break;
+                case '{':
+                    cfg.fps = std::max(cfg.fps - FPS_STEP, FPS_MIN);
+                    break;
+                case '}':
+                    cfg.fps = std::min(cfg.fps + FPS_STEP, FPS_MAX);
+                    break;
                 case '<':
                 case ',':
                     g_mixer.changeVolume(-5);
@@ -1021,7 +1037,11 @@ int main() {
             if (changed) saveSettings(cfg);
         }
 
-        napms(1);
+        // Frame rate control based on FPS setting
+        int frameDelayMs = (cfg.fps > 0) ? (1000 / cfg.fps) : 1;
+        napms(std::max(1, frameDelayMs));
+
+        frameCount++;  // Track frame count for responsiveness tuning
     }
 
 done:
