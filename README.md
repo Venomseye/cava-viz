@@ -182,10 +182,3 @@ If you like this project:
 * 💡 Suggest features
 
 ---
-
-If you want next level 🔥, I can also:
-
-* Add a **GIF demo (looks insane for visualizers)**
-* Create a **GitHub release page**
-* Help you **push this properly with tags + versioning**
-* Add **CI/CD (auto build with GitHub Actions)**
