@@ -22,7 +22,7 @@ Here’s a **polished, GitHub-ready README.md** with badges, structure, and a mo
 
 * 🎵 Real-time audio visualization (PulseAudio)
 * 🎨 Multiple styles & themes
-* ⚡ Adjustable FPS (10–240, default 60)
+* ⚡ Adjustable FPS (10–240, default 60) #not updated yet
 * 🔊 Stereo / Mono modes
 * 💫 Blur & peak effects
 * 📊 VU meter support
@@ -75,13 +75,12 @@ sudo ./install_debian.sh
 
 ---
 
-## ⚡ FPS Control (New)
+## ⚡ FPS Control (coming soon)
 
 * Adjustable from **10 → 240 FPS**
 * Default: **60 FPS**
 * Step size: **10**
 * Changes reflected in HUD
-* Saved in config file
 
 ---
 
@@ -95,7 +94,6 @@ Auto-saved at:
 
 Includes:
 
-* FPS
 * Sensitivity
 * Theme
 * Effects
