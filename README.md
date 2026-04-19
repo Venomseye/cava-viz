@@ -196,5 +196,3 @@ pipewire_capture.*    — PipeWire backend
 MIT
 
 ```
-
----
