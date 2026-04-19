@@ -34,7 +34,7 @@ A terminal audio visualizer built in C++ using the [CAVA](https://github.com/kar
 ## Build
 
 ```bash
-git clone https://github.com/venomseye/cava-viz
+git clone https://github.com/yourname/cava-viz
 cd cava-viz
 mkdir build && cd build
 cmake .. -DCMAKE_BUILD_TYPE=Release
