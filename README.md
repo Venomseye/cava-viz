@@ -1,4 +1,3 @@
-````markdown
 # cava-viz
 
 **cava-viz** is a high-performance terminal audio visualizer written in C++, based on the CAVA algorithm.
