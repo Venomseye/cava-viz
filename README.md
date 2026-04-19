@@ -190,9 +190,3 @@ pipewire_capture.*    — PipeWire backend
 ```
 
 ---
-
-## License
-
-MIT
-
-```
