@@ -50,7 +50,8 @@ It renders a smooth, real-time stereo spectrum with gradient colors, sub-cell pr
 ```bash
 git clone https://github.com/venomseye/cava-viz
 cd cava-viz
-./install
+chmod +x install.sh uninstall.sh
+./install.sh
 ````
 
 The installer will:
