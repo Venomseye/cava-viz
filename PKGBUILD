@@ -1,4 +1,4 @@
-# Maintainer: Your Name <you@example.com>
+# Maintainer: Venomseye <venomseye>
 pkgname=cava-viz
 pkgver=1.1.0
 pkgrel=1
@@ -39,7 +39,7 @@ source=("${pkgname}-${pkgver}.tar.gz")
 sha256sums=('SKIP')
 
 # Alternatively, from git:
-# source=("git+https://github.com/yourusername/cava-viz.git#tag=v${pkgver}")
+# source=("git+https://github.com/venomseye/cava-viz.git#tag=v${pkgver}")
 # sha256sums=('SKIP')
 
 # ── Build ──────────────────────────────────────────────────────────────────────
