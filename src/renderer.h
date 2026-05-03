@@ -1,11 +1,4 @@
 #pragma once
-/**
- * ncurses renderer.
- * Gradient: SCREEN-relative (row determines colour, not bar height).
- * Incremental redraw: only cells that changed from last frame.
- * Dynamic gradient: one colour pair per terminal row — no banding.
- * No A_BOLD on bar cells (washes out RGB colours on most terminals).
- */
 #include <algorithm>
 #include <chrono>
 #include <string>
@@ -23,16 +16,17 @@ public:
     static constexpr int    BAR_W_MIN      = 1;
     static constexpr int    BAR_W_MAX      = 8;
     static constexpr int    BAR_W_DEFAULT  = 2;
-
-    // CAVA: gradient_size = LINES — one colour pair per terminal row.
-    // grad_steps_ is the live count (= avail, rebuilt on resize/init).
     static constexpr int    GRAD_STEPS_MAX = 256;
     static constexpr int    COLOR_BASE     = 16;
-    // HUD_PAIR_BASE sits above bar slots AND the 4 dedicated HUD colour slots.
     static constexpr int    HUD_PAIR_BASE  = GRAD_STEPS_MAX + 5;
     static constexpr int    HUD_PAIRS      = 4;
     static constexpr double HUD_HIDE_SECS  = 3.0;
+    static constexpr double FEEDBACK_SECS  = 1.5;
     static constexpr int    HUD_ROWS       = 2;
+    // Beat flash: sum of bars 0-3 must exceed this to trigger a one-frame bold overlay.
+    // Range [0,1] per bar; 4 bars summed → effective range [0,4].
+    // 0.55 * 4 = 2.2 means each of the 4 bass bars averages 55% height.
+    static constexpr float  BEAT_THRESHOLD = 0.55f;
 
     Renderer();
     ~Renderer();
@@ -41,7 +35,6 @@ public:
 
     bool init();
 
-    /// bars_l / bars_r: values in [0,1] (left and right channel).
     void render(const std::vector<float>& bars_l,
                 const std::vector<float>& bars_r,
                 double fps          = 60.0,
@@ -50,32 +43,39 @@ public:
                 bool  auto_sens     = true);
 
     void handleResize();
-    int  cols() const;
-    int  rows() const;
-
-    /// Number of bars that fit per side at current geometry.
+    int  cols()     const;
+    int  rows()     const;
     int  barCount() const;
-
     void notifyChange();
 
-    // Theme
+    // ── Theme ─────────────────────────────────────────────────────────────────
     void        setTheme(Theme t);
     Theme       nextTheme();
-    Theme       theme()    const { return theme_; }
+    Theme       theme()     const { return theme_; }
     std::string themeName() const;
 
-    // Bar width
+    // ── Bar width ─────────────────────────────────────────────────────────────
     int  increaseBarWidth();
     int  decreaseBarWidth();
     void setBarWidth(int w);
     int  barWidth()     const { return bar_w_; }
-    /// Bar width that proportionally fills the terminal (1 unit per 40 cols).
     int  autoBarWidth() const;
 
-    // Gap
+    // ── Gap ───────────────────────────────────────────────────────────────────
     int  cycleGap();
     void setGapWidth(int g) { gap_w_ = std::clamp(g, 0, 2); }
     int  gapWidth()  const  { return gap_w_; }
+
+    // ── HUD pin ───────────────────────────────────────────────────────────────
+    void setHudPinned(bool v)  { hud_pinned_ = v; }
+    void toggleHudPin()        { hud_pinned_ = !hud_pinned_; notifyChange(); }
+    bool hudPinned()     const { return hud_pinned_; }
+
+    // ── Feedback flash ────────────────────────────────────────────────────────
+    void showFeedback(const std::string& msg);
+
+    // ── Source name for HUD ───────────────────────────────────────────────────
+    void setSourceName(const std::string& s) { source_name_ = s; }
 
 private:
     using Clock = std::chrono::steady_clock;
@@ -89,23 +89,29 @@ private:
 
     TP   last_change_tp_;
     bool hud_visible_  {true};
+    bool hud_pinned_   {false};
     bool needs_clear_  {true};
 
-    // Incremental redraw state
+    std::string feedback_msg_;
+    TP          feedback_tp_;
+    bool        feedback_active_ {false};
+
+    std::string source_name_;
+
+    // Beat flash state
+    bool beat_flash_ {false};   // true for exactly one frame when beat detected
+
     std::vector<int> prev_l_, prev_r_;
     int              prev_avail_      {0};
-    // Live gradient step count = avail.  One colour pair per row: no banding.
     int              grad_steps_      {GRAD_STEPS_MAX};
     int              prev_grad_avail_ {0};
     void resetPrev(int n, int avail);
 
-    // Colour
     void rebuildColors();
     void applyNcursesSettings();
     int  gradPair(float screen_frac) const noexcept;
     int  hudPair (int lv)            const noexcept;
 
-    // Drawing
     void drawBarColumn(int col, int height_sub, int prev_sub, int avail);
     void drawMirrorLR (const std::vector<float>& left,
                        const std::vector<float>& right, int avail);

@@ -1,6 +1,6 @@
 # Maintainer: Your Name <you@example.com>
 pkgname=cava-viz
-pkgver=1.0.0
+pkgver=1.1.0
 pkgrel=1
 pkgdesc="Cava-inspired terminal audio visualizer with PipeWire and PulseAudio support"
 arch=('x86_64' 'aarch64')
@@ -85,6 +85,6 @@ package() {
 #   sudo cmake --install .
 #
 # Or via makepkg after creating the tarball:
-#   tar czf cava-viz-1.0.0.tar.gz --transform 's,^,cava-viz-1.0.0/,' \
+#   tar czf cava-viz-1.1.0.tar.gz --transform 's,^,cava-viz-1.1.0/,' \
 #       CMakeLists.txt src/ LICENSE README.md
 #   makepkg -si

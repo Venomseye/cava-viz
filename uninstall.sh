@@ -45,6 +45,19 @@ if [ -d "$CONFIG_DIR" ]; then
     fi
 fi
 
+# ── Optionally remove internal state file ─────────────────────────────────────
+STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/cava-viz"
+if [ -d "$STATE_DIR" ]; then
+    echo ""
+    read -r -p "  Remove internal state at $STATE_DIR? [y/N] " ans
+    if [[ "${ans,,}" == "y" ]]; then
+        rm -rf "$STATE_DIR"
+        ok "Removed state"
+    else
+        info "State kept at $STATE_DIR"
+    fi
+fi
+
 echo ""
 echo -e "  ${C_BLD}viz has been uninstalled.${C_RST}"
 echo ""

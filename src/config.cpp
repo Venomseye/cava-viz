@@ -5,55 +5,130 @@
 #include <cstring>
 #include <sys/stat.h>
 
-std::string Config::configPath() {
-    const char* x = std::getenv("XDG_CONFIG_HOME");
+// ── Path helpers ──────────────────────────────────────────────────────────────
+static std::string xdgBase(const char* var, const char* fallback_suffix) {
+    const char* x = std::getenv(var);
+    if (x && x[0]) return std::string(x);
     const char* h = std::getenv("HOME");
-    std::string b;
-    if (x && x[0]) b = x;
-    else if (h && h[0]) b = std::string(h) + "/.config";
-    else b = "/tmp";
-    return b + "/cava-viz/config";
+    if (h && h[0]) return std::string(h) + fallback_suffix;
+    return "/tmp";
+}
+static void mkdirFor(const std::string& path) {
+    std::string dir = path.substr(0, path.rfind('/'));
+    mkdir(dir.c_str(), 0755);
 }
 
+std::string Config::configPath() {
+    return xdgBase("XDG_CONFIG_HOME", "/.config") + "/cava-viz/config";
+}
+std::string Config::statePath() {
+    return xdgBase("XDG_STATE_HOME", "/.local/state") + "/cava-viz/state";
+}
+
+// ── Shared key=value parser ───────────────────────────────────────────────────
+static bool parseKV(const char* line, char key[64], char val[256]) {
+    if (line[0] == '#' || line[0] == '\n' || line[0] == '\r') return false;
+    if (std::sscanf(line, " %63[^=] = %255[^\n]", key, val) != 2) return false;
+    for (int i = (int)strlen(key)-1; i >= 0 && key[i] == ' '; --i) key[i] = '\0';
+    for (int i = (int)strlen(val)-1; i >= 0 && (val[i]==' '||val[i]=='\r'); --i) val[i] = '\0';
+    return key[0] != '\0';
+}
+static bool asBool(const char* v) {
+    return strcmp(v,"1")==0 || strcmp(v,"true")==0;
+}
+
+// ── Config load ───────────────────────────────────────────────────────────────
 bool Config::load() {
     FILE* f = std::fopen(configPath().c_str(), "r");
     if (!f) return false;
-    char line[512];
+
+    char line[512], k[64], v[256];
     while (std::fgets(line, sizeof(line), f)) {
-        if (line[0] == '#' || line[0] == '\n' || line[0] == '\r') continue;
-        char k[64] = {}, v[256] = {};
-        if (std::sscanf(line, " %63[^=] = %255[^\n]", k, v) != 2) continue;
-        for (int i=(int)strlen(k)-1; i>=0 && k[i]==' '; --i) k[i]='\0';
-        for (int i=(int)strlen(v)-1; i>=0 && (v[i]==' '||v[i]=='\r'); --i) v[i]='\0';
-        auto ib = [](const char* s){ return strcmp(s,"1")==0 || strcmp(s,"true")==0; };
-        if      (!strcmp(k,"theme"))       theme       = std::atoi(v);
-        else if (!strcmp(k,"bar_width"))   bar_width   = std::atoi(v);
-        else if (!strcmp(k,"gap_width"))   gap_width   = std::atoi(v);
-        else if (!strcmp(k,"sensitivity")) sensitivity = (float)std::atof(v);
-        else if (!strcmp(k,"auto_sens"))   auto_sens   = ib(v);
-        else if (!strcmp(k,"stereo"))      stereo      = ib(v);
-        else if (!strcmp(k,"last_source")) last_source = v;
+        if (!parseKV(line, k, v)) continue;
+        if      (!strcmp(k,"theme"))        theme       = std::atoi(v);
+        else if (!strcmp(k,"bar_width"))    bar_width   = std::atoi(v);
+        else if (!strcmp(k,"gap_width"))    gap_width   = std::atoi(v);
+        else if (!strcmp(k,"hud_pinned"))   hud_pinned  = asBool(v);
+        else if (!strcmp(k,"stereo"))       stereo      = asBool(v);
+        else if (!strcmp(k,"high_cutoff"))  high_cutoff = std::atoi(v);
+        else if (!strcmp(k,"gravity"))      gravity     = (float)std::atof(v);
+        else if (!strcmp(k,"monstercat"))   monstercat  = (float)std::atof(v);
+        else if (!strcmp(k,"rise_factor"))  rise_factor = (float)std::atof(v);
+        else if (!strcmp(k,"sensitivity"))  sensitivity = (float)std::atof(v);
+        else if (!strcmp(k,"auto_sens"))    auto_sens   = asBool(v);
+        else if (!strcmp(k,"fps"))          fps         = std::atoi(v);
     }
     std::fclose(f);
-    theme       = std::max(0,    std::min(theme,       11));
-    bar_width   = std::max(1,    std::min(bar_width,    8));
-    gap_width   = std::max(0,    std::min(gap_width,    2));
-    sensitivity = std::max(0.2f, std::min(sensitivity,  8.0f));
+
+    // Clamp to valid ranges, warn if anything was out of range
+#define CW(field, lo, hi) \
+    { auto _c = std::clamp(field,(lo),(hi)); \
+      if (_c != field) std::fprintf(stderr,"cava-viz: config '%s' out of range, clamped.\n",#field); \
+      field = _c; }
+    CW(theme,       0,      11)
+    CW(bar_width,   1,      8)
+    CW(gap_width,   0,      2)
+    CW(high_cutoff, 1000,   24000)
+    CW(gravity,     0.1f,   5.0f)
+    CW(monstercat,  0.0f,   5.0f)
+    CW(rise_factor, 0.0f,   0.95f)
+    CW(sensitivity, 0.2f,   8.0f)
+    CW(fps,         10,     240)
+#undef CW
     return true;
 }
 
+// ── Config save ───────────────────────────────────────────────────────────────
 void Config::save() const {
     const std::string p = configPath();
-    mkdir(p.substr(0, p.rfind('/')).c_str(), 0755);
+    mkdirFor(p);
     FILE* f = std::fopen(p.c_str(), "w");
     if (!f) return;
-    fprintf(f, "# cava-viz\n");
-    fprintf(f, "theme       = %d\n",   theme);
-    fprintf(f, "bar_width   = %d\n",   bar_width);
-    fprintf(f, "gap_width   = %d\n",   gap_width);
-    fprintf(f, "sensitivity = %.2f\n", (double)sensitivity);
-    fprintf(f, "auto_sens   = %d\n",   auto_sens ? 1 : 0);
-    fprintf(f, "stereo      = %d\n",   stereo    ? 1 : 0);
-    fprintf(f, "last_source = %s\n",   last_source.c_str());
+    fprintf(f, "# cava-viz configuration\n");
+    fprintf(f, "# Edit while running — inotify reloads changes instantly.\n\n");
+    fprintf(f, "# ── Visual ──────────────────────────────────────────────────────\n");
+    fprintf(f, "# 0=Fire 1=Plasma 2=Neon 3=Teal 4=Sunset 5=Candy\n");
+    fprintf(f, "# 6=Aurora 7=Inferno 8=White 9=Rose 10=Mermaid 11=Vapor\n");
+    fprintf(f, "theme         = %d\n",   theme);
+    fprintf(f, "bar_width     = %d\n",   bar_width);
+    fprintf(f, "gap_width     = %d\n",   gap_width);
+    fprintf(f, "hud_pinned    = %d\n",   hud_pinned  ? 1 : 0);
+    fprintf(f, "\n# ── Audio ────────────────────────────────────────────────────────\n");
+    fprintf(f, "stereo        = %d\n",   stereo      ? 1 : 0);
+    fprintf(f, "high_cutoff   = %d\n",   high_cutoff);
+    fprintf(f, "\n# ── FFT / Smoothing ──────────────────────────────────────────────\n");
+    fprintf(f, "# gravity: fall speed (0.1=slow, 1.0=CAVA default, 5.0=instant)\n");
+    fprintf(f, "gravity       = %.2f\n", (double)gravity);
+    fprintf(f, "# monstercat: bar spread (0=off, 1.5=CAVA default)\n");
+    fprintf(f, "monstercat    = %.2f\n", (double)monstercat);
+    fprintf(f, "# rise_factor: attack smoothing (0.0=instant, 0.95=very slow)\n");
+    fprintf(f, "rise_factor   = %.2f\n", (double)rise_factor);
+    fprintf(f, "\n# ── Sensitivity ──────────────────────────────────────────────────\n");
+    fprintf(f, "sensitivity   = %.2f\n", (double)sensitivity);
+    fprintf(f, "auto_sens     = %d\n",   auto_sens   ? 1 : 0);
+    fprintf(f, "\n# ── Performance ──────────────────────────────────────────────────\n");
+    fprintf(f, "fps           = %d\n",   fps);
+    std::fclose(f);
+}
+
+// ── State file ────────────────────────────────────────────────────────────────
+bool Config::loadState() {
+    FILE* f = std::fopen(statePath().c_str(), "r");
+    if (!f) return false;
+    char line[512], k[64], v[256];
+    while (std::fgets(line, sizeof(line), f)) {
+        if (!parseKV(line, k, v)) continue;
+        if (!strcmp(k, "last_source")) last_source = v;
+    }
+    std::fclose(f);
+    return true;
+}
+void Config::saveState() const {
+    const std::string p = statePath();
+    mkdirFor(p);
+    FILE* f = std::fopen(p.c_str(), "w");
+    if (!f) return;
+    fprintf(f, "# cava-viz internal state — do not edit\n");
+    fprintf(f, "last_source = %s\n", last_source.c_str());
     std::fclose(f);
 }
