@@ -25,15 +25,17 @@
 #ifdef __linux__
 #  include <fcntl.h>
 #  include <sys/inotify.h>
+#  include <sys/resource.h>
 #  include <sys/stat.h>
+#  include <time.h>
 #  include <unistd.h>
 #endif
 
 static std::atomic<bool> g_running{true};
 static std::atomic<bool> g_resize {false};
 static void sig_handler(int s) {
-    if (s == SIGINT || s == SIGTERM) g_running.store(false);
-    else if (s == SIGWINCH)          g_resize.store(true);
+    if (s==SIGINT||s==SIGTERM) g_running.store(false);
+    else if (s==SIGWINCH)      g_resize.store(true);
 }
 
 // ── Monitor detection (throttled to once per POLL_SECS) ───────────────────────
@@ -79,13 +81,13 @@ static std::unique_ptr<AudioCapture> makeAudio(
     };
     std::unique_ptr<AudioCapture> a;
 #ifdef HAVE_PIPEWIRE
-    if (backend == "auto" || backend == "pipewire") {
+    if (backend=="auto"||backend=="pipewire") {
         a = try1(std::make_unique<PipeWireCapture>());
-        if (a || backend == "pipewire") return a;
+        if (a || backend=="pipewire") return a;
     }
 #endif
 #ifdef HAVE_PULSEAUDIO
-    if (!a && (backend == "auto" || backend == "pulse"))
+    if (!a && (backend=="auto"||backend=="pulse"))
         a = try1(std::make_unique<PulseAudioCapture>());
 #endif
     return a;
@@ -96,14 +98,14 @@ static void print_usage(const char* p) {
         "Usage: %s [OPTIONS]\n\n"
         "Terminal audio visualizer (CAVA algorithm)\n\n"
         "Options:\n"
-        "  -b <pulse|pipewire|auto>  Backend (default: auto)\n"
-        "  -s <source>               Explicit source name\n"
-        "  -M                        Use microphone\n"
-        "  -r <Hz>                   Sample rate (default: 44100)\n"
-        "  -t <0-11>                 Initial theme\n"
-        "  -f <n>                    Target FPS (default: 60)\n"
-        "  -w                        Force auto bar width\n"
-        "  -h                        Show help\n\n"
+        "  -b <pulse|pipewire|auto>   Backend (default: auto)\n"
+        "  -s <source>                Explicit source device\n"
+        "  -M                         Use microphone input\n"
+        "  -r <Hz>                    Sample rate (default: 44100)\n"
+        "  -t <0-11>                  Theme index\n"
+        "  -f <n>                     Target FPS (default: 60)\n"
+        "  -w                         Auto bar width\n"
+        "  -h                         Show help\n\n"
         "Keys:\n"
         "  q          Quit\n"
         "  t          Next theme\n"
@@ -111,8 +113,13 @@ static void print_usage(const char* p) {
         "  ] / [      Increase / decrease bar width\n"
         "  UP / DOWN  Manual sensitivity\n"
         "  a          Toggle auto-sensitivity\n"
-        "  h          Toggle HUD pin (always visible)\n"
-        "  s          Toggle stereo / mono\n\n"
+        "  s          Toggle stereo / mono\n"
+        "  h          Toggle HUD pin\n"
+        "  o          Toggle outline mode\n"
+        "  c          Toggle colour cycle\n"
+        "  v          Toggle per-bar colour\n"
+        "  w          Toggle A-weighting\n"
+        "  n          Toggle auto-mono (collapse stereo on high correlation)\n\n"
         "Config: %s\n"
         "  Edit while running — inotify reloads changes instantly.\n\n"
         "Themes: Fire Plasma Neon Teal Sunset Candy Aurora Inferno "
@@ -120,7 +127,7 @@ static void print_usage(const char* p) {
         p, Config::configPath().c_str());
 }
 
-// ── Apply all FFT config fields ───────────────────────────────────────────────
+// ── Apply full FFT config ─────────────────────────────────────────────────────
 static void applyFFTConfig(FFTProcessor& fft, const Config& cfg) {
     fft.setSensitivity(cfg.sensitivity);
     fft.setAutoSens(cfg.auto_sens);
@@ -128,6 +135,22 @@ static void applyFFTConfig(FFTProcessor& fft, const Config& cfg) {
     fft.setMonstercat(cfg.monstercat);
     fft.setHighCutoff(cfg.high_cutoff);
     fft.setRiseFactor(cfg.rise_factor);
+    fft.setBassSmooth(cfg.bass_smooth);
+    fft.setAWeighting(cfg.a_weighting);
+    fft.setNoiseGate(cfg.noise_gate);
+    fft.setAutoMono(cfg.auto_mono);
+}
+
+// ── Apply rendering config ────────────────────────────────────────────────────
+static void applyRendererConfig(Renderer& r, const Config& cfg,
+                                bool force_auto_width) {
+    r.setTheme(static_cast<Theme>(cfg.theme));
+    r.setGapWidth(cfg.gap_width);
+    if (!force_auto_width) r.setBarWidth(cfg.bar_width);
+    r.setHudPinned(cfg.hud_pinned);
+    r.setOutlineMode(cfg.outline_mode);
+    r.setColourCycle(cfg.colour_cycle);
+    r.setPerBarColour(cfg.per_bar_colour);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -139,17 +162,22 @@ int main(int argc, char* argv[]) {
     sigaction(SIGTERM, &sa, nullptr);
     sigaction(SIGWINCH,&sa, nullptr);
 
-    // ── Config ────────────────────────────────────────────────────────────────
     Config cfg;
     cfg.load();
-    cfg.loadState();  // loads last_source from the separate state file
+    cfg.loadState();
 
-    // ── CLI ───────────────────────────────────────────────────────────────────
-    std::string backend    = "auto";
+#ifdef __linux__
+    // Lower process priority so the kernel parks this core into deeper C-states
+    // when nothing else is running, allowing the fan controller to reduce speed.
+    // nice +5: still responsive but yields immediately to any competing work.
+    setpriority(PRIO_PROCESS, 0, 5);
+#endif
+
+    std::string backend   = "auto";
     std::string cli_source;
-    int  sample_rate       = 44100;
-    bool use_mic           = false;
-    bool force_auto_width  = false;
+    int  sample_rate      = 44100;
+    bool use_mic          = false;
+    bool force_auto_width = false;
 
     static const struct option long_opts[] = {
         {"backend",   required_argument, nullptr, 'b'},
@@ -169,8 +197,8 @@ int main(int argc, char* argv[]) {
             case 's': cli_source       = optarg;                              break;
             case 'M': use_mic          = true;                                break;
             case 'r': sample_rate      = std::stoi(optarg);                   break;
-            case 't': { int ti = std::stoi(optarg);
-                        if (ti>=0 && ti<(int)Theme::COUNT) cfg.theme=ti; }   break;
+            case 't': { int ti=std::stoi(optarg);
+                        if (ti>=0&&ti<(int)Theme::COUNT) cfg.theme=ti; }     break;
             case 'f': cfg.fps          = std::max(1, std::stoi(optarg));      break;
             case 'w': force_auto_width = true;                                break;
             case 'h': print_usage(argv[0]); return 0;
@@ -178,34 +206,27 @@ int main(int argc, char* argv[]) {
         }
     }
 
-    // ── FFT processor (stack-allocated; lives for the entire duration of main) ─
-    // The audio callback captures it by reference via [&] — safe because the
-    // object never moves. Stereo toggle calls fft.reinit() in-place after
-    // stopping the audio thread, so no pointer ever becomes invalid.
+    // ── FFT processor (stack-allocated; never moves) ──────────────────────────
+    // The audio callback captures fft by [&]. Stack allocation guarantees the
+    // address is stable for the entire duration of main().
     int channels = cfg.stereo ? 2 : 1;
     FFTProcessor fft(sample_rate, channels);
     applyFFTConfig(fft, cfg);
 
-    // ── Callback builder ──────────────────────────────────────────────────────
-    // Always produces a fresh closure bound to the current `fft` by reference.
-    // Safe because `fft` is on the stack and outlives all AudioCapture objects.
     auto make_cb = [&]() -> AudioCapture::AudioCallback {
         return [&](const std::vector<float>& s, int ch) { fft.addSamples(s, ch); };
     };
 
-    // ── Audio source resolution ───────────────────────────────────────────────
+    // ── Audio source ──────────────────────────────────────────────────────────
     std::string active_source;
+    std::string bname;
     std::unique_ptr<AudioCapture> audio;
-    std::string bname;  // backend display name; updated on every (re)start
 
-    // startAudio(): resolves source, starts audio, updates active_source/bname.
-    // Assumes audio is already stopped (or was never started).
     auto startAudio = [&]() {
         if (!cli_source.empty()) {
             active_source = cli_source;
             audio = makeAudio(backend, active_source, sample_rate, channels, make_cb());
         } else if (use_mic) {
-            // Try empty source first, then "default"
             active_source = "";
             audio = makeAudio(backend, active_source, sample_rate, channels, make_cb());
             if (!audio) {
@@ -213,27 +234,22 @@ int main(int argc, char* argv[]) {
                 audio = makeAudio(backend, active_source, sample_rate, channels, make_cb());
             }
         } else {
-            // 1. PipeWire loopback (empty source)
             active_source = "";
             audio = makeAudio(backend, active_source, sample_rate, channels, make_cb());
-            // 2. Saved source from last session
             if (!audio && !cfg.last_source.empty()) {
                 active_source = cfg.last_source;
                 audio = makeAudio(backend, active_source, sample_rate, channels, make_cb());
             }
-            // 3. Shell-detected monitor (throttled)
             if (!audio) {
                 active_source = detectMonitor();
                 if (!active_source.empty())
                     audio = makeAudio(backend, active_source, sample_rate, channels, make_cb());
             }
-            // 4. Final fallback
             if (!audio) {
                 active_source = "";
                 audio = makeAudio(backend, active_source, sample_rate, channels, make_cb());
             }
         }
-
         if (audio) {
             bname = audio->backendName();
             if (!active_source.empty() && !use_mic) {
@@ -249,27 +265,23 @@ int main(int argc, char* argv[]) {
     // ── Renderer ──────────────────────────────────────────────────────────────
     Renderer renderer;
     if (!renderer.init()) { audio->stop(); return 1; }
-    renderer.setTheme(static_cast<Theme>(cfg.theme));
-    renderer.setGapWidth(cfg.gap_width);
-    renderer.setBarWidth(force_auto_width ? renderer.autoBarWidth() : cfg.bar_width);
-    renderer.setHudPinned(cfg.hud_pinned);
+    applyRendererConfig(renderer, cfg, force_auto_width);
+    if (force_auto_width) renderer.setBarWidth(renderer.autoBarWidth());
     renderer.setSourceName(active_source);
     renderer.notifyChange();
 
-    // ── inotify: live config reload ───────────────────────────────────────────
+    // ── inotify ───────────────────────────────────────────────────────────────
     const std::string cfg_path = Config::configPath();
     const std::string cfg_dir  = cfg_path.substr(0, cfg_path.rfind('/'));
     const std::string cfg_file = cfg_path.substr(cfg_path.rfind('/') + 1);
-
     int inotify_fd = -1;
 #ifdef __linux__
     mkdir(cfg_dir.c_str(), 0755);
     inotify_fd = inotify_init1(IN_NONBLOCK);
     if (inotify_fd >= 0) {
         if (inotify_add_watch(inotify_fd, cfg_dir.c_str(),
-                              IN_CLOSE_WRITE | IN_MOVED_TO) < 0) {
-            close(inotify_fd);
-            inotify_fd = -1;
+                              IN_CLOSE_WRITE|IN_MOVED_TO) < 0) {
+            close(inotify_fd); inotify_fd = -1;
         }
     }
 #endif
@@ -282,15 +294,20 @@ int main(int argc, char* argv[]) {
     const int target_fps = std::clamp(cfg.fps, 10, 240);
     const us  budget(1'000'000 / target_fps);
     double fps   = (double)target_fps;
-    int fcount   = 0;
-    int frames   = 0;
+    int fcount   = 0, frames = 0;
     auto fps_tp  = Clock::now();
     const int WATCH = target_fps * 2;
 
-    // RMS silence tracking — only start counting after a warm-up period
     static constexpr int SILENCE_SEC = 5;
     int silent_frames     = 0;
     const int silence_lim = target_fps * SILENCE_SEC;
+
+    // Absolute-deadline frame limiter (Linux): initialise the first deadline
+    // to now so the first iteration sleeps for exactly one budget period.
+#ifdef __linux__
+    struct timespec t_deadline{};
+    clock_gettime(CLOCK_MONOTONIC, &t_deadline);
+#endif
 
     while (g_running.load()) {
         const auto t0 = Clock::now();
@@ -300,7 +317,7 @@ int main(int argc, char* argv[]) {
         if (g_resize.exchange(false))
             renderer.handleResize();
 
-        // ── Live config reload ────────────────────────────────────────────────
+        // ── inotify reload ────────────────────────────────────────────────────
 #ifdef __linux__
         if (inotify_fd >= 0) {
             alignas(struct inotify_event)
@@ -311,14 +328,10 @@ int main(int argc, char* argv[]) {
                     const auto* ev = reinterpret_cast<const struct inotify_event*>(p);
                     if (ev->len > 0 && cfg_file == ev->name) {
                         Config nc;
-                        nc.last_source = cfg.last_source;  // preserve state
+                        nc.last_source = cfg.last_source;
                         if (nc.load()) {
                             cfg = nc;
-                            renderer.setTheme(static_cast<Theme>(cfg.theme));
-                            renderer.setGapWidth(cfg.gap_width);
-                            if (!force_auto_width)
-                                renderer.setBarWidth(cfg.bar_width);
-                            renderer.setHudPinned(cfg.hud_pinned);
+                            applyRendererConfig(renderer, cfg, force_auto_width);
                             applyFFTConfig(fft, cfg);
                             renderer.notifyChange();
                         }
@@ -330,18 +343,13 @@ int main(int argc, char* argv[]) {
         }
 #endif
 
-        // ── Watchdog: reconnect on backend failure, source change, or silence ─
+        // ── Watchdog ──────────────────────────────────────────────────────────
         if (!use_mic && cli_source.empty() && (frames % WATCH == 0)) {
             bool reconnect = audio && audio->hasFailed();
-
             if (!reconnect && !active_source.empty()) {
-                const std::string cur = detectMonitor();  // throttled
-                if (!cur.empty() && cur != active_source)
-                    reconnect = true;
+                const std::string cur = detectMonitor();
+                if (!cur.empty() && cur != active_source) reconnect = true;
             }
-
-            // Reconnect if output has been silent for SILENCE_SEC seconds.
-            // Skip the first warm-up period to avoid false triggers on startup.
             if (!reconnect && frames > target_fps && silent_frames >= silence_lim)
                 reconnect = true;
 
@@ -366,14 +374,15 @@ int main(int argc, char* argv[]) {
         }
 
         // ── Input ─────────────────────────────────────────────────────────────
-        wtimeout(stdscr, 4);
+        // Set timeout equal to the full frame budget so ncurses blocks in the
+        // kernel rather than polling repeatedly — reduces CPU wakeups.
+        wtimeout(stdscr, 1000 / target_fps);
         const int ch = getch();
         if (ch == ERR) goto next_frame;
 
         switch (ch) {
-            case 'q':
-                g_running.store(false);
-                break;
+
+            case 'q': g_running.store(false); break;
 
             case 't':
                 cfg.theme = (int)renderer.nextTheme();
@@ -397,32 +406,24 @@ int main(int argc, char* argv[]) {
 
             case KEY_UP: {
                 float s = fft.increaseSensitivity();
-                cfg.sensitivity = s;
-                cfg.auto_sens   = false;
+                cfg.sensitivity = s; cfg.auto_sens = false;
                 fft.setAutoSens(false);
-                renderer.notifyChange();
-                cfg.save();
+                renderer.notifyChange(); cfg.save();
                 break;
             }
-
             case KEY_DOWN: {
                 float s = fft.decreaseSensitivity();
-                cfg.sensitivity = s;
-                cfg.auto_sens   = false;
+                cfg.sensitivity = s; cfg.auto_sens = false;
                 fft.setAutoSens(false);
-                renderer.notifyChange();
-                cfg.save();
+                renderer.notifyChange(); cfg.save();
                 break;
             }
-
             case 'a':
                 cfg.auto_sens = !cfg.auto_sens;
                 fft.setAutoSens(cfg.auto_sens);
-                renderer.notifyChange();
-                cfg.save();
+                renderer.notifyChange(); cfg.save();
                 break;
 
-            // ── HUD pin ───────────────────────────────────────────────────────
             case 'h':
                 renderer.toggleHudPin();
                 cfg.hud_pinned = renderer.hudPinned();
@@ -430,32 +431,20 @@ int main(int argc, char* argv[]) {
                 break;
 
             // ── Stereo / Mono hot-toggle ──────────────────────────────────────
-            // Safe sequence:
-            //   1. Stop the audio capture thread (no more callbacks after this)
-            //   2. Call fft.reinit() — object stays at the same address, so the
-            //      [&] reference in the callback closure remains valid forever
-            //   3. Restart audio — new callback produced by make_cb() captures
-            //      the same `fft` by reference
             case 's': {
                 if (audio) { audio->stop(); audio.reset(); }
-
                 cfg.stereo = !cfg.stereo;
                 channels   = cfg.stereo ? 2 : 1;
-
-                // reinit() takes the internal mutex and resets all FFT state.
-                // No audio thread is running at this point, so it is safe.
                 fft.reinit(channels);
                 applyFFTConfig(fft, cfg);
                 silent_frames = 0;
-
-                startAudio();  // make_cb() produces a fresh closure for the new channel count
-
+                startAudio();
                 if (audio) {
                     renderer.setSourceName(active_source);
                     renderer.showFeedback(cfg.stereo ? "Stereo" : "Mono");
                     cfg.save();
                 } else {
-                    // Restart failed — revert
+                    // Revert on failure
                     cfg.stereo = !cfg.stereo;
                     channels   = cfg.stereo ? 2 : 1;
                     fft.reinit(channels);
@@ -466,22 +455,55 @@ int main(int argc, char* argv[]) {
                 break;
             }
 
+            // ── Outline mode ──────────────────────────────────────────────────
+            case 'o':
+                renderer.toggleOutline();
+                cfg.outline_mode = renderer.outlineMode();
+                cfg.save();
+                break;
+
+            // ── Colour cycle ──────────────────────────────────────────────────
+            case 'c':
+                renderer.toggleColourCycle();
+                cfg.colour_cycle = renderer.colourCycle();
+                cfg.save();
+                break;
+
+            // ── Per-bar colour ────────────────────────────────────────────────
+            case 'v':
+                renderer.togglePerBarColour();
+                cfg.per_bar_colour = renderer.perBarColour();
+                cfg.save();
+                break;
+
+            // ── A-weighting ───────────────────────────────────────────────────
+            case 'w':
+                cfg.a_weighting = !cfg.a_weighting;
+                fft.setAWeighting(cfg.a_weighting);
+                renderer.showFeedback(cfg.a_weighting ? "A-Weight On" : "A-Weight Off");
+                renderer.notifyChange(); cfg.save();
+                break;
+
+            // ── Auto-mono ─────────────────────────────────────────────────────
+            case 'n':
+                cfg.auto_mono = !cfg.auto_mono;
+                fft.setAutoMono(cfg.auto_mono);
+                renderer.showFeedback(cfg.auto_mono ? "Auto-Mono On" : "Auto-Mono Off");
+                renderer.notifyChange(); cfg.save();
+                break;
+
             case KEY_RESIZE:
                 renderer.handleResize();
                 break;
 
-            default:
-                break;
+            default: break;
         }
 
         next_frame:;
 
         // ── Compute + render ──────────────────────────────────────────────────
-        const int   n    = renderer.barCount();
-        const float fpsc = (float)fps;
-        fft.execute(n, fpsc);
+        fft.execute(renderer.barCount(), (float)fps);
 
-        // RMS silence detection (skip warm-up)
         if (frames > target_fps) {
             const auto& bl = fft.barsL();
             float rms = 0.f;
@@ -502,20 +524,32 @@ int main(int argc, char* argv[]) {
         }
 
         // ── Frame limiter ─────────────────────────────────────────────────────
+        // Use clock_nanosleep with an absolute deadline rather than
+        // sleep_for(budget - elapsed).  sleep_for measures elapsed AFTER the
+        // frame work finishes and then adds a relative sleep — on Linux the
+        // kernel rounds up to the next timer tick (~1 ms), so the loop can
+        // busy-spin for up to 1 ms at the end of every frame, preventing the
+        // CPU from entering C-states and keeping the fan running.
+        // An absolute deadline lets the kernel wake us at exactly the right
+        // tick without any busy-spin remainder.
+#ifdef __linux__
+        t_deadline.tv_nsec += budget.count() * 1000LL;
+        while (t_deadline.tv_nsec >= 1'000'000'000LL) {
+            t_deadline.tv_nsec -= 1'000'000'000LL;
+            t_deadline.tv_sec  += 1;
+        }
+        clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &t_deadline, nullptr);
+#else
         const auto elapsed = Clock::now() - t0;
-        if (elapsed < budget)
-            std::this_thread::sleep_for(budget - elapsed);
+        if (elapsed < budget) std::this_thread::sleep_for(budget - elapsed);
+#endif
     }
 
     // ── Teardown ──────────────────────────────────────────────────────────────
-    // Stop audio BEFORE fft goes out of scope so the callback never fires on
-    // a destroyed object. (fft is on the stack; audio is destroyed first here.)
     if (audio) { audio->stop(); audio.reset(); }
-
 #ifdef __linux__
     if (inotify_fd >= 0) close(inotify_fd);
 #endif
-
     cfg.save();
     cfg.saveState();
     return 0;

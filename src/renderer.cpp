@@ -53,7 +53,7 @@ static const Stop kGrad[static_cast<int>(Theme::COUNT)][6] = {
     {{{0.00f},{ 20,  0, 20}}, {{0.20f},{ 200,  0, 50}},
      {{0.40f},{ 660,  0,  0}},{{0.60f},{ 950,130,  0}},
      {{0.80f},{1000,550,  0}},{{1.00f},{1000,960,620}}},
-    // WHITE: steel-blue tint at base → cool white at peak (avoids washed-out look)
+    // WHITE
     {{{0.00f},{ 180,200,260}},{{0.20f},{ 360,400,500}},
      {{0.40f},{ 560,600,700}},{{0.60f},{ 740,780,880}},
      {{0.80f},{ 880,900,960}},{{1.00f},{1000,1000,1000}}},
@@ -96,7 +96,6 @@ static const short kFall[static_cast<int>(Theme::COUNT)][48] = {
     {52,52,88,88,124,124,160,196,196,202,208,214,220,220,226,226,
      227,228,229,230,231,231,231,231,52,88,124,196,202,208,214,220,
      226,231,231,231,231,231,231,231,231,231,231,231,231,231,231,231},
-    // WHITE: dark navy → light grey-blue (steel-blue tint, not pure greyscale)
     {17,18,19,20,21,27,33,39,45,51,87,117,153,189,195,231,
      195,189,153,117,87,51,45,39,33,27,21,20,195,231,231,231,
      231,231,231,231,231,231,231,231,231,231,231,231,231,231,231,231},
@@ -111,21 +110,50 @@ static const short kFall[static_cast<int>(Theme::COUNT)][48] = {
      231,231,231,231,231,231,231,231,231,231,231,231,231,231,231,231},
 };
 
+// ── Colour helpers ────────────────────────────────────────────────────────────
 static RGB lerpRGB(RGB a, RGB b, float t) noexcept {
-    return {(short)(a.r+(b.r-a.r)*t),(short)(a.g+(b.g-a.g)*t),(short)(a.b+(b.b-a.b)*t)};
+    return {(short)(a.r+(b.r-a.r)*t),
+            (short)(a.g+(b.g-a.g)*t),
+            (short)(a.b+(b.b-a.b)*t)};
 }
 static RGB sampleTheme(int ti, float t) noexcept {
     const Stop* s = kGrad[ti];
     for (int i = 1; i < 6; ++i)
         if (t <= s[i].t) {
-            float lt = (t-s[i-1].t) / (s[i].t-s[i-1].t);
+            float lt = (t-s[i-1].t)/(s[i].t-s[i-1].t);
             return lerpRGB(s[i-1].c, s[i].c, std::clamp(lt,0.f,1.f));
         }
     return s[5].c;
 }
 
+// HSV → RGB (H in [0,360), S and V in [0,1]).
+// Returns ncurses 0-1000 scaled RGB.
+static RGB hsvToRgb(float h, float s, float v) noexcept {
+    float r=0,g=0,b=0;
+    const float hh = std::fmod(h, 360.f) / 60.f;
+    const int   i  = (int)hh;
+    const float ff = hh - i;
+    const float p  = v*(1-s), q=v*(1-s*ff), t_=v*(1-s*(1-ff));
+    switch (i) {
+        case 0: r=v;  g=t_; b=p;  break;
+        case 1: r=q;  g=v;  b=p;  break;
+        case 2: r=p;  g=v;  b=t_; break;
+        case 3: r=p;  g=q;  b=v;  break;
+        case 4: r=t_; g=p;  b=v;  break;
+        default:r=v;  g=p;  b=q;  break;
+    }
+    return {(short)(r*1000),(short)(g*1000),(short)(b*1000)};
+}
+
+// Blend two ncurses-scaled RGB values.
+static RGB blendRGB(RGB base, RGB hue, float amt) noexcept {
+    return {(short)(base.r + (hue.r-base.r)*amt),
+            (short)(base.g + (hue.g-base.g)*amt),
+            (short)(base.b + (hue.b-base.b)*amt)};
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
-Renderer::Renderer()  = default;
+Renderer::Renderer()  { last_frame_tp_ = Clock::now(); }
 Renderer::~Renderer() { if (initialized_) endwin(); }
 
 void Renderer::applyNcursesSettings() {
@@ -145,6 +173,7 @@ bool Renderer::init() {
     can_rgb_ = (COLORS >= 256) && can_change_color();
     rebuildColors();
     last_change_tp_ = Clock::now();
+    last_frame_tp_  = Clock::now();
     initialized_    = true;
     return true;
 }
@@ -155,18 +184,21 @@ void Renderer::handleResize() {
     can_rgb_ = (COLORS >= 256) && can_change_color();
     applyNcursesSettings();
     rebuildColors();
-    prev_l_.clear(); prev_r_.clear(); prev_avail_ = 0;
+    invalidatePrev();
     prev_grad_avail_ = 0;
-    needs_clear_ = true;
+    needs_clear_     = true;
     notifyChange();
 }
 
+// ── Colour rebuild ─────────────────────────────────────────────────────────────
 void Renderer::rebuildColors() {
     const int ti = (int)theme_;
-    // Gradient mapping: screen row → colour pair index.
-    // t = 0.08 + pow(raw, 0.85) * 0.92 keeps the original CAVA-style mapping:
-    // a slight curve that gives a bit more colour range in the lower bars
-    // without diverging from the theme's intended dark-to-bright progression.
+
+    // Colour cycle: compute how much to rotate the hue of each theme colour.
+    // We apply a gentle hue blend (up to 40%) rather than a full HSV override
+    // so the theme's character is preserved while still visibly shifting.
+    const float hue_amt = colour_cycle_ ? 0.40f : 0.0f;
+
     static constexpr float T_MIN  = 0.08f;
     static constexpr float T_SPAN = 0.92f;
     static constexpr float GAMMA  = 0.85f;
@@ -176,7 +208,11 @@ void Renderer::rebuildColors() {
             float raw = (float)i / std::max(1, grad_steps_-1);
             float t   = T_MIN + std::pow(raw, GAMMA) * T_SPAN;
             RGB   rgb = sampleTheme(ti, t);
-            short ci  = (short)(COLOR_BASE + i);
+            if (colour_cycle_ && hue_amt > 0.f) {
+                RGB hue = hsvToRgb(hue_offset_ + raw * 60.f, 0.8f, 0.9f);
+                rgb     = blendRGB(rgb, hue, hue_amt);
+            }
+            short ci = (short)(COLOR_BASE + i);
             init_color(ci, rgb.r, rgb.g, rgb.b);
             init_pair(i+1, ci, -1);
         }
@@ -185,7 +221,7 @@ void Renderer::rebuildColors() {
         for (int i = 0; i < grad_steps_; ++i) {
             float raw = (float)i / std::max(1, grad_steps_-1);
             float t   = T_MIN + std::pow(raw, GAMMA) * T_SPAN;
-            int   pi  = std::clamp((int)(t * 47.0f + 0.5f), 0, 47);
+            int   pi  = std::clamp((int)(t * 47.f + 0.5f), 0, 47);
             init_pair(i+1, pal[pi], -1);
         }
     } else {
@@ -196,6 +232,8 @@ void Renderer::rebuildColors() {
             init_pair(i+1, fg, -1);
         }
     }
+
+    // HUD colour pairs
     static const float kHF[HUD_PAIRS] = {0.55f, 0.72f, 0.88f, 1.00f};
     for (int lv = 0; lv < HUD_PAIRS; ++lv) {
         short ci = (short)(COLOR_BASE + GRAD_STEPS_MAX + lv);
@@ -211,14 +249,15 @@ void Renderer::rebuildColors() {
     }
 }
 
-int Renderer::gradPair(float sf) const noexcept {
-    int idx = (int)(sf * std::max(1, grad_steps_-1) + 0.5f);
+int Renderer::gradPair(float frac) const noexcept {
+    int idx = (int)(frac * std::max(1, grad_steps_-1) + 0.5f);
     return std::clamp(idx, 0, grad_steps_-1) + 1;
 }
 int Renderer::hudPair(int lv) const noexcept {
     return HUD_PAIR_BASE + std::clamp(lv, 0, HUD_PAIRS-1);
 }
 
+// ── Public helpers ────────────────────────────────────────────────────────────
 int Renderer::cols()  const { return COLS; }
 int Renderer::rows()  const { return LINES; }
 int Renderer::barCount() const {
@@ -229,7 +268,10 @@ int Renderer::autoBarWidth() const {
     return std::clamp(COLS / 40, BAR_W_MIN, BAR_W_MAX);
 }
 void Renderer::notifyChange() { last_change_tp_ = Clock::now(); hud_visible_ = true; }
-
+void Renderer::invalidatePrev() {
+    prev_l_.assign(prev_l_.size(), -1);
+    prev_r_.assign(prev_r_.size(), -1);
+}
 void Renderer::showFeedback(const std::string& msg) {
     feedback_msg_    = msg;
     feedback_tp_     = Clock::now();
@@ -240,72 +282,101 @@ void Renderer::showFeedback(const std::string& msg) {
 void Renderer::setTheme(Theme t) {
     theme_ = t;
     if (initialized_) rebuildColors();
-    prev_l_.clear(); prev_r_.clear(); needs_clear_ = true;
+    invalidatePrev(); needs_clear_ = true;
 }
 Theme Renderer::nextTheme() {
     theme_ = (Theme)(((int)theme_+1) % (int)Theme::COUNT);
     if (initialized_) rebuildColors();
-    prev_l_.clear(); prev_r_.clear(); needs_clear_ = true;
-    notifyChange();
-    return theme_;
+    invalidatePrev(); needs_clear_ = true;
+    notifyChange(); return theme_;
 }
 std::string Renderer::themeName() const { return kThemeNames[(int)theme_]; }
 
 int Renderer::increaseBarWidth() {
     bar_w_ = std::min(bar_w_+1, BAR_W_MAX);
-    prev_l_.clear(); prev_r_.clear(); needs_clear_ = true;
+    invalidatePrev(); needs_clear_ = true;
     showFeedback("Width: " + std::to_string(bar_w_));
     return bar_w_;
 }
 int Renderer::decreaseBarWidth() {
     bar_w_ = std::max(bar_w_-1, BAR_W_MIN);
-    prev_l_.clear(); prev_r_.clear(); needs_clear_ = true;
+    invalidatePrev(); needs_clear_ = true;
     showFeedback("Width: " + std::to_string(bar_w_));
     return bar_w_;
 }
 void Renderer::setBarWidth(int w) {
     bar_w_ = std::clamp(w, BAR_W_MIN, BAR_W_MAX);
-    prev_l_.clear(); prev_r_.clear(); needs_clear_ = true;
+    invalidatePrev(); needs_clear_ = true;
 }
 int Renderer::cycleGap() {
     gap_w_ = (gap_w_ >= 2) ? 0 : gap_w_+1;
-    prev_l_.clear(); prev_r_.clear(); needs_clear_ = true;
+    invalidatePrev(); needs_clear_ = true;
     showFeedback("Gap: " + std::to_string(gap_w_));
     return gap_w_;
 }
 
 void Renderer::resetPrev(int n, int avail) {
-    if ((int)prev_l_.size() != n || prev_avail_ != avail) {
-        prev_l_.assign(n, -1);
-        prev_r_.assign(n, -1);
+    const bool resize = ((int)prev_l_.size() != n || prev_avail_ != avail);
+    if (resize) {
+        prev_l_.assign(n, -1);   prev_r_.assign(n, -1);
         prev_avail_ = avail;
     }
 }
 
-void Renderer::drawBarColumn(int col, int height_sub, int prev_sub, int avail) {
+// ── drawBarColumn ─────────────────────────────────────────────────────────────
+void Renderer::drawBarColumn(int col, int bar_idx, int total_bars,
+                              int height_sub, int prev_sub, int avail) {
     if (col < 0 || col + bar_w_ > COLS || avail <= 0) return;
+
     const bool force  = (prev_sub < 0);
     if (!force && height_sub == prev_sub) return;
 
     const int prev_h  = force ? 0 : prev_sub;
     const int cur_lh  = height_sub / SUB;
     const int prev_lh = prev_h / SUB;
+
     int max_line = (std::max(height_sub, prev_h) + SUB) / SUB;
     max_line = std::min(max_line, avail);
 
     char lbuf[BAR_W_MAX * 3 + 1];
 
     for (int line = 0; line < max_line; ++line) {
-        const int   row = HUD_ROWS + avail - 1 - line;
-        const float sf  = (avail > 1) ? (float)line / (float)(avail-1) : 1.f;
-        const int   cp  = gradPair(sf);
+        const int row = HUD_ROWS + avail - 1 - line;
+        if (row < HUD_ROWS || row >= LINES) continue;
 
+        // ── Colour pair selection ─────────────────────────────────────────────
+        float frac;
+        if (per_bar_colour_ && total_bars > 1) {
+            frac = (float)bar_idx / (float)(total_bars - 1);
+        } else {
+            frac = (avail > 1) ? (float)line / (float)(avail - 1) : 1.f;
+        }
+        const int cp   = gradPair(frac);
+        const int attr = beat_flash_ ? (COLOR_PAIR(cp) | A_BOLD) : COLOR_PAIR(cp);
+
+        // ── Outline mode: only draw the topmost cell of the bar ───────────────
+        if (outline_mode_) {
+            if (line == cur_lh && height_sub > 0) {
+                int bar_step = height_sub % SUB;
+                if (bar_step == 0) bar_step = SUB - 1; else bar_step--;
+                const char* blk = kBlk[std::clamp(bar_step+1, 1, 8)];
+                for (int w = 0; w < bar_w_; ++w) memcpy(lbuf + w*3, blk, 3);
+                lbuf[bar_w_*3] = '\0';
+                attron(attr);
+                mvaddstr(row, col, lbuf);
+                attroff(attr);
+            } else if (!force && line <= prev_lh && line != cur_lh) {
+                mvhline(row, col, ' ', bar_w_);
+            }
+            continue;
+        }
+
+        // ── Filled bar drawing ────────────────────────────────────────────────
         if (height_sub >= line * SUB + 1) {
             int bar_step;
             if (cur_lh == line) {
                 bar_step = height_sub % SUB;
-                if (bar_step == 0) bar_step = SUB - 1;
-                else               bar_step--;
+                if (bar_step == 0) bar_step = SUB - 1; else bar_step--;
             } else if (force || prev_lh <= line) {
                 bar_step = SUB - 1;
             } else {
@@ -313,9 +384,7 @@ void Renderer::drawBarColumn(int col, int height_sub, int prev_sub, int avail) {
             }
             const char* blk = kBlk[std::clamp(bar_step+1, 1, 8)];
             for (int w = 0; w < bar_w_; ++w) memcpy(lbuf + w*3, blk, 3);
-            lbuf[bar_w_ * 3] = '\0';
-            // A_BOLD on beat frames: brightens bar cells without altering colours.
-            const int attr = beat_flash_ ? (COLOR_PAIR(cp) | A_BOLD) : COLOR_PAIR(cp);
+            lbuf[bar_w_*3] = '\0';
             attron(attr);
             mvaddstr(row, col, lbuf);
             attroff(attr);
@@ -325,15 +394,26 @@ void Renderer::drawBarColumn(int col, int height_sub, int prev_sub, int avail) {
     }
 }
 
+// ── drawMirrorLR ──────────────────────────────────────────────────────────────
 void Renderer::drawMirrorLR(const std::vector<float>& left,
                               const std::vector<float>& right, int avail) {
     if (COLS <= 0 || avail <= 0) return;
+
     const int n    = (int)left.size();
     const int unit = bar_w_ + gap_w_;
+
+    // Centre the mirror layout
     const int total_w   = 2 * n * unit - gap_w_;
     const int left_edge = (COLS - total_w) / 2;
     const int centre    = left_edge + n * unit;
+
     resetPrev(n, avail);
+
+    // total_bars for per-bar colour: full mirror width = 2*n bars.
+    // Bar index: right side = bar_idx 0..n-1 (bass→treble outward),
+    //            left side  = bar_idx n..2n-1 (bass←treble inward).
+    // We map both to [0,n-1] symmetrically so colour is symmetric.
+    const int total_bars = n;
 
     for (int b = 0; b < n; ++b) {
         const float rv    = (b < (int)right.size()) ? right[b] : 0.f;
@@ -343,23 +423,24 @@ void Renderer::drawMirrorLR(const std::vector<float>& left,
 
         const int rcol = centre + b * unit;
         if (rcol + bar_w_ <= COLS) {
-            drawBarColumn(rcol, h_sub_r, prev_r_[b], avail);
+            drawBarColumn(rcol, b, total_bars, h_sub_r, prev_r_[b], avail);
             prev_r_[b] = h_sub_r;
         }
+
         const int lcol = centre - (b+1) * unit;
         if (lcol >= 0) {
-            drawBarColumn(lcol, h_sub_l, prev_l_[b], avail);
+            drawBarColumn(lcol, b, total_bars, h_sub_l, prev_l_[b], avail);
             prev_l_[b] = h_sub_l;
         }
     }
 }
 
+// ── drawStatusBar ─────────────────────────────────────────────────────────────
 void Renderer::drawStatusBar(double fps, const std::string& backend,
                                float sens, bool auto_sens) {
     if (LINES < HUD_ROWS + 1 || COLS < 10) return;
     mvhline(0, 0, ' ', COLS);
 
-    // When feedback is active, show flash message; otherwise show full info line
     const bool show_fb = feedback_active_ &&
         (std::chrono::duration<double>(Clock::now() - feedback_tp_).count() < FEEDBACK_SECS);
     if (!show_fb) feedback_active_ = false;
@@ -368,23 +449,31 @@ void Renderer::drawStatusBar(double fps, const std::string& backend,
     if (show_fb) {
         std::snprintf(lbuf, sizeof(lbuf), "  %s", feedback_msg_.c_str());
     } else {
+        // Mode flags shown compactly in the HUD
+        char flags[32] = {};
+        int  fi = 0;
+        if (outline_mode_)   flags[fi++] = 'O';
+        if (colour_cycle_)   flags[fi++] = 'C';
+        if (per_bar_colour_) flags[fi++] = 'B';
+        flags[fi] = '\0';
+
         char src_buf[80] = {};
         if (!source_name_.empty())
-            std::snprintf(src_buf, sizeof(src_buf), "  |  %.50s", source_name_.c_str());
+            std::snprintf(src_buf, sizeof(src_buf), "  |  %.40s", source_name_.c_str());
 
         std::snprintf(lbuf, sizeof(lbuf),
-            " %s  |  %s  |  Bars:%d%s  |  W:%d G:%d  |  Sens:%.1f%s%s",
+            " %s  |  %s  |  Bars:%d%s  |  W:%d G:%d  |  Sens:%.1f%s%s%s",
             backend.empty() ? "?" : backend.c_str(),
             themeName().c_str(),
             barCount(),
             src_buf,
             bar_w_, gap_w_,
             (double)sens,
-            auto_sens   ? " A"    : "",
-            hud_pinned_ ? " [PIN]": "");
+            auto_sens    ? " A"   : "",
+            hud_pinned_  ? " PIN" : "",
+            fi > 0       ? (std::string("  [") + flags + "]").c_str() : "");
     }
 
-    // Right-aligned fps counter
     char rbuf[20];
     std::snprintf(rbuf, sizeof(rbuf), "%.0f fps ", fps);
     const int rlen = (int)strlen(rbuf);
@@ -403,17 +492,29 @@ void Renderer::drawStatusBar(double fps, const std::string& backend,
     attroff(COLOR_PAIR(hudPair(0)));
 }
 
+// ── render ────────────────────────────────────────────────────────────────────
 void Renderer::render(const std::vector<float>& bars_l,
                        const std::vector<float>& bars_r,
                        double fps, const std::string& backend,
                        float sens, bool auto_sens) {
     if (!initialized_ || bars_l.empty()) return;
 
+    // ── Colour cycle: advance hue offset by elapsed time ─────────────────────
+    const auto now_tp = Clock::now();
+    if (colour_cycle_) {
+        const float dt = std::chrono::duration<float>(now_tp - last_frame_tp_).count();
+        hue_offset_ = std::fmod(hue_offset_ + HUE_DEG_PER_SEC * dt, 360.f);
+        rebuildColors();   // cheap: only updates colour pair definitions
+    }
+    last_frame_tp_ = now_tp;
+
+    // ── HUD visibility ────────────────────────────────────────────────────────
     const double elapsed = std::chrono::duration<double>(
-                               Clock::now() - last_change_tp_).count();
+                               now_tp - last_change_tp_).count();
     const bool hud_now = hud_pinned_ || (elapsed < HUD_HIDE_SECS) || feedback_active_;
     hud_visible_ = hud_now;
 
+    // ── Gradient step count ───────────────────────────────────────────────────
     const int avail = std::max(1, LINES - HUD_ROWS);
     if (avail != prev_grad_avail_) {
         grad_steps_      = std::clamp(avail, 1, GRAD_STEPS_MAX);
@@ -423,13 +524,6 @@ void Renderer::render(const std::vector<float>& bars_l,
     }
 
     // ── Beat flash detection ──────────────────────────────────────────────────
-    // Sum bars 0-3 (low-frequency energy). When it exceeds BEAT_THRESHOLD the
-    // beat flag is active for exactly this one frame: A_BOLD is applied to every
-    // bar cell, giving a visible brightness pulse on kick drums and bass hits.
-    // On state transitions we call erase() + prev reset so every cell is
-    // repainted with the correct attribute — this also prevents stale bar cells
-    // from sticking when force=true cells above the bar don't get the normal
-    // erase-path (which guards on !force).
     bool do_clear = needs_clear_;
     {
         const int  nb  = (int)bars_l.size();
@@ -438,28 +532,25 @@ void Renderer::render(const std::vector<float>& bars_l,
         for (int i = 0; i < lim; ++i) lfe += bars_l[i];
         const bool beat_now = (lim > 0) && (lfe / lim >= BEAT_THRESHOLD);
         if (beat_now != beat_flash_) {
-            // Attribute changed: erase entire screen this frame so cells above
-            // the current bar height get cleared (the force=true path in
-            // drawBarColumn only visits lines within the current bar, so without
-            // erase() those cells would stick with the old A_BOLD state).
             do_clear = true;
-            prev_l_.assign(prev_l_.size(), -1);
-            prev_r_.assign(prev_r_.size(), -1);
+            invalidatePrev();
         }
         beat_flash_ = beat_now;
     }
 
-    // Erase AFTER beat detection so a beat-transition erase fires this frame,
-    // not the next. (Old code checked needs_clear_ before detection.)
     if (do_clear) { erase(); needs_clear_ = false; }
+
+    // ── Cache bar count for per-bar colour ────────────────────────────────────
+    last_bar_count_ = (int)bars_l.size();
 
     drawMirrorLR(bars_l, bars_r, avail);
 
-    if (hud_now) {
+    if (hud_now)
         drawStatusBar(fps, backend, sens, auto_sens);
-    } else {
+    else {
         mvhline(0, 0, ' ', COLS);
         mvhline(1, 0, ' ', COLS);
     }
+
     refresh();
 }

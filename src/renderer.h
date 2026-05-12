@@ -23,10 +23,12 @@ public:
     static constexpr double HUD_HIDE_SECS  = 3.0;
     static constexpr double FEEDBACK_SECS  = 1.5;
     static constexpr int    HUD_ROWS       = 2;
-    // Beat flash: sum of bars 0-3 must exceed this to trigger a one-frame bold overlay.
-    // Range [0,1] per bar; 4 bars summed → effective range [0,4].
-    // 0.55 * 4 = 2.2 means each of the 4 bass bars averages 55% height.
+
+    // Beat flash: average of bars 0–3 must reach this to trigger A_BOLD overlay.
     static constexpr float  BEAT_THRESHOLD = 0.55f;
+
+    // Colour cycle: hue shift per second (degrees in [0,360)).
+    static constexpr float  HUE_DEG_PER_SEC = 30.0f;
 
     Renderer();
     ~Renderer();
@@ -64,18 +66,43 @@ public:
     // ── Gap ───────────────────────────────────────────────────────────────────
     int  cycleGap();
     void setGapWidth(int g) { gap_w_ = std::clamp(g, 0, 2); }
-    int  gapWidth()  const  { return gap_w_; }
+    int  gapWidth()   const { return gap_w_; }
 
     // ── HUD pin ───────────────────────────────────────────────────────────────
-    void setHudPinned(bool v)  { hud_pinned_ = v; }
-    void toggleHudPin()        { hud_pinned_ = !hud_pinned_; notifyChange(); }
-    bool hudPinned()     const { return hud_pinned_; }
+    void setHudPinned(bool v) { hud_pinned_ = v; }
+    void toggleHudPin()       { hud_pinned_ = !hud_pinned_; notifyChange(); }
+    bool hudPinned()    const { return hud_pinned_; }
 
     // ── Feedback flash ────────────────────────────────────────────────────────
     void showFeedback(const std::string& msg);
 
-    // ── Source name for HUD ───────────────────────────────────────────────────
+    // ── Source name ───────────────────────────────────────────────────────────
     void setSourceName(const std::string& s) { source_name_ = s; }
+
+    // ── Outline mode ─────────────────────────────────────────────────────────
+    /// When true, only the top cell of each bar is drawn (lighter, retro look).
+    void toggleOutline()         { outline_mode_ = !outline_mode_;
+                                   invalidatePrev(); notifyChange();
+                                   showFeedback(outline_mode_ ? "Outline" : "Filled"); }
+    void setOutlineMode(bool v)  { outline_mode_ = v; invalidatePrev(); }
+    bool outlineMode()     const { return outline_mode_; }
+
+    // ── Colour cycle ──────────────────────────────────────────────────────────
+    /// When true, the gradient hue rotates slowly over time.
+    void toggleColourCycle()        { colour_cycle_ = !colour_cycle_;
+                                      showFeedback(colour_cycle_ ? "Colour Cycle On"
+                                                                  : "Colour Cycle Off"); }
+    void setColourCycle(bool v)     { colour_cycle_ = v; }
+    bool colourCycle()        const { return colour_cycle_; }
+
+    // ── Per-bar colour ────────────────────────────────────────────────────────
+    /// When true, colour maps to bar index (bass→treble) rather than screen row.
+    void togglePerBarColour()       { per_bar_colour_ = !per_bar_colour_;
+                                      invalidatePrev(); notifyChange();
+                                      showFeedback(per_bar_colour_ ? "Bar Colour"
+                                                                    : "Row Colour"); }
+    void setPerBarColour(bool v)    { per_bar_colour_ = v; invalidatePrev(); }
+    bool perBarColour()       const { return per_bar_colour_; }
 
 private:
     using Clock = std::chrono::steady_clock;
@@ -87,32 +114,50 @@ private:
     int   bar_w_       {BAR_W_DEFAULT};
     int   gap_w_       {1};
 
+    // HUD
     TP   last_change_tp_;
     bool hud_visible_  {true};
     bool hud_pinned_   {false};
     bool needs_clear_  {true};
 
+    // Feedback flash
     std::string feedback_msg_;
     TP          feedback_tp_;
     bool        feedback_active_ {false};
 
     std::string source_name_;
 
-    // Beat flash state
-    bool beat_flash_ {false};   // true for exactly one frame when beat detected
+    // Beat flash
+    bool beat_flash_ {false};
 
+    // Incremental redraw state
     std::vector<int> prev_l_, prev_r_;
     int              prev_avail_      {0};
     int              grad_steps_      {GRAD_STEPS_MAX};
     int              prev_grad_avail_ {0};
+
+    // Rendering modes
+    bool outline_mode_   {false};
+    bool colour_cycle_   {false};
+    bool per_bar_colour_ {false};
+
+    // Colour cycle state
+    float hue_offset_  {0.0f};  // degrees [0, 360)
+    TP    last_frame_tp_;
+
+    // Cached bar count for per-bar colour mapping
+    int   last_bar_count_ {0};
+
     void resetPrev(int n, int avail);
+    void invalidatePrev();
 
     void rebuildColors();
     void applyNcursesSettings();
-    int  gradPair(float screen_frac) const noexcept;
-    int  hudPair (int lv)            const noexcept;
+    int  gradPair(float frac) const noexcept;
+    int  hudPair (int lv)     const noexcept;
 
-    void drawBarColumn(int col, int height_sub, int prev_sub, int avail);
+    void drawBarColumn(int col, int bar_idx, int total_bars,
+                       int height_sub, int prev_sub, int avail);
     void drawMirrorLR (const std::vector<float>& left,
                        const std::vector<float>& right, int avail);
     void drawStatusBar(double fps, const std::string& backend,
