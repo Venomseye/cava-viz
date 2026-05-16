@@ -35,11 +35,15 @@ install_arch() {
 install_debian() {
     header "Installing dependencies (Debian / Ubuntu)..."
     sudo apt-get update -qq
+    # libspa-0.2-dev is bundled inside libpipewire-0.3-dev on Debian Bookworm+
+    # so we list it separately but use apt's || true to not fail if absent.
     sudo apt-get install -y \
         cmake ninja-build pkg-config build-essential \
         libfftw3-dev libncursesw5-dev \
-        libpipewire-0.3-dev libspa-0.2-dev \
         libpulse-dev
+    # PipeWire is optional — available on Debian Bullseye+ / Ubuntu 21.04+
+    sudo apt-get install -y libpipewire-0.3-dev 2>/dev/null || \
+        warn "libpipewire-0.3-dev not available — PipeWire backend will be disabled (PulseAudio will be used)"
 }
 install_fedora() {
     header "Installing dependencies (Fedora / RHEL)..."
@@ -52,7 +56,6 @@ install_fedora() {
 
 # ── Detect distro and install deps ───────────────────────────────────────────
 header "Checking dependencies..."
-MISSING_PKGS=0
 
 need_install=0
 for req in cmake pkg-config; do
@@ -60,6 +63,17 @@ for req in cmake pkg-config; do
 done
 pkg-config --exists fftw3     2>/dev/null || { warn "Missing library: fftw3";    need_install=1; }
 pkg-config --exists ncursesw  2>/dev/null || { warn "Missing library: ncursesw"; need_install=1; }
+
+# Audio backend check — at least one of these must be present.
+# This is checked SEPARATELY so a fresh Debian system (which has cmake but not
+# the audio libs) correctly triggers the package install.
+audio_ok=0
+pkg-config --exists libpulse        2>/dev/null && audio_ok=1
+pkg-config --exists libpipewire-0.3 2>/dev/null && audio_ok=1
+if [ "$audio_ok" -eq 0 ]; then
+    warn "No audio backend found (libpulse / libpipewire-0.3) — will install"
+    need_install=1
+fi
 
 if [ "$need_install" -eq 1 ]; then
     info "Installing missing dependencies..."
@@ -75,6 +89,17 @@ fi
 # Final check
 pkg-config --exists fftw3    || die "fftw3 not found — cannot build."
 pkg-config --exists ncursesw || die "ncursesw not found — cannot build."
+
+# Warn (not fatal) if no audio backend available after install attempt
+audio_ok=0
+pkg-config --exists libpulse        2>/dev/null && audio_ok=1
+pkg-config --exists libpipewire-0.3 2>/dev/null && audio_ok=1
+if [ "$audio_ok" -eq 0 ]; then
+    warn "No audio backend available — viz will build but cannot capture audio."
+    warn "On Debian/Ubuntu: sudo apt-get install libpulse-dev"
+else
+    ok "Audio backend found."
+fi
 ok "All required dependencies found."
 
 # ── Configure ─────────────────────────────────────────────────────────────────
@@ -119,5 +144,8 @@ echo "  Keybindings:"
 echo "    t      = cycle theme        ] / [  = bar width"
 echo "    g      = cycle gap          ↑ / ↓  = sensitivity"
 echo "    a      = toggle auto-sens   s      = toggle stereo/mono"
-echo "    h      = toggle HUD pin     q      = quit"
+echo "    h      = toggle HUD pin     o      = outline mode"
+echo "    c      = colour cycle       v      = per-bar colour"
+echo "    w      = A-weighting        n      = auto-mono"
+echo "    q      = quit"
 echo ""
