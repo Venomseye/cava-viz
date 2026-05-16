@@ -13,6 +13,8 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <climits>   // NAME_MAX (Debian/Ubuntu don't expose it via inotify.h)
+#include <cmath>     // std::sqrt, std::fmod
 #include <cstdio>
 #include <cstring>
 #include <getopt.h>
@@ -74,11 +76,15 @@ static std::unique_ptr<AudioCapture> makeAudio(
         const std::string& backend, const std::string& source,
         int sr, int ch, AudioCapture::AudioCallback cb)
 {
+    // try1 is only needed when at least one backend is compiled in.
+    // Without this guard, GCC on Debian treats the unused lambda as an error.
+#if defined(HAVE_PIPEWIRE) || defined(HAVE_PULSEAUDIO)
     auto try1 = [&](std::unique_ptr<AudioCapture> cap) -> std::unique_ptr<AudioCapture> {
         if (!cap->init(source, sr, ch)) return nullptr;
         if (!cap->start(cb))            return nullptr;
         return cap;
     };
+#endif
     std::unique_ptr<AudioCapture> a;
 #ifdef HAVE_PIPEWIRE
     if (backend=="auto"||backend=="pipewire") {
@@ -90,6 +96,7 @@ static std::unique_ptr<AudioCapture> makeAudio(
     if (!a && (backend=="auto"||backend=="pulse"))
         a = try1(std::make_unique<PulseAudioCapture>());
 #endif
+    (void)backend; (void)source; (void)sr; (void)ch; (void)cb; // suppress warnings when both disabled
     return a;
 }
 
@@ -260,7 +267,17 @@ int main(int argc, char* argv[]) {
     };
 
     startAudio();
-    if (!audio) { fprintf(stderr, "cava-viz: no audio backend started.\n"); return 1; }
+    if (!audio) {
+#if !defined(HAVE_PULSEAUDIO) && !defined(HAVE_PIPEWIRE)
+        fprintf(stderr,
+            "cava-viz: no audio backend compiled in.\n"
+            "  Install libpulse-dev (PulseAudio) or libpipewire-0.3-dev (PipeWire)\n"
+            "  then rebuild: cd build && cmake .. && cmake --build .\n");
+#else
+        fprintf(stderr, "cava-viz: no audio backend started.\n");
+#endif
+        return 1;
+    }
 
     // ── Renderer ──────────────────────────────────────────────────────────────
     Renderer renderer;
