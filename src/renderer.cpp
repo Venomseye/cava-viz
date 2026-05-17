@@ -153,6 +153,36 @@ static RGB blendRGB(RGB base, RGB hue, float amt) noexcept {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// ── Truecolor terminal detection ──────────────────────────────────────────────
+// ncurses' can_change_color() consults the terminfo database. Most truecolor
+// terminals (Konsole, GNOME Terminal, Xfce Terminal, kitty, Alacritty, …) set
+// TERM=xterm-256color whose terminfo entry deliberately omits the ccc (can
+// change color) capability, so can_change_color() returns false even though
+// init_color() works perfectly — the terminal processes xterm OSC 4 sequences
+// regardless of what terminfo says.
+//
+// We therefore detect truecolor support via well-known environment variables
+// that terminal emulators set independently of TERM/terminfo:
+//   COLORTERM=truecolor|24bit  — the standard signal; most modern terminals
+//   KONSOLE_VERSION            — Konsole specifically (always truecolor)
+//   KITTY_WINDOW_ID            — kitty
+//   VTE_VERSION                — GNOME Terminal, Terminator, Xfce Terminal
+//   WT_SESSION                 — Windows Terminal (WSL)
+//   ITERM_SESSION_ID           — iTerm2 (macOS)
+//
+// When any of these is set we force can_rgb_=true so the full RGB gradient
+// path is used instead of the 256-colour fallback palette.
+bool Renderer::detectTruecolor() noexcept {
+    const char* ct = std::getenv("COLORTERM");
+    if (ct && (strcmp(ct,"truecolor")==0 || strcmp(ct,"24bit")==0)) return true;
+    if (std::getenv("KONSOLE_VERSION"))  return true;   // Konsole
+    if (std::getenv("KITTY_WINDOW_ID"))  return true;   // kitty
+    if (std::getenv("VTE_VERSION"))      return true;   // GNOME/Xfce/Terminator
+    if (std::getenv("WT_SESSION"))       return true;   // Windows Terminal
+    if (std::getenv("ITERM_SESSION_ID")) return true;   // iTerm2
+    return false;
+}
+
 Renderer::Renderer()  { last_frame_tp_ = Clock::now(); }
 Renderer::~Renderer() { if (initialized_) endwin(); }
 
@@ -170,7 +200,9 @@ bool Renderer::init() {
     if (!has_colors()) { endwin(); return false; }
     start_color();
     use_default_colors();
-    can_rgb_ = (COLORS >= 256) && can_change_color();
+    // Force RGB colour path on terminals that support init_color() but whose
+    // terminfo entry (typically xterm-256color) omits the ccc capability.
+    can_rgb_ = (COLORS >= 256) && (can_change_color() || detectTruecolor());
     rebuildColors();
     last_change_tp_ = Clock::now();
     last_frame_tp_  = Clock::now();
@@ -181,7 +213,7 @@ bool Renderer::init() {
 void Renderer::handleResize() {
     endwin(); refresh(); clear();
     start_color(); use_default_colors();
-    can_rgb_ = (COLORS >= 256) && can_change_color();
+    can_rgb_ = (COLORS >= 256) && (can_change_color() || detectTruecolor());
     applyNcursesSettings();
     rebuildColors();
     invalidatePrev();

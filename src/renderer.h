@@ -153,6 +153,7 @@ private:
 
     void rebuildColors();
     void applyNcursesSettings();
+    static bool detectTruecolor() noexcept;  // env-var based, distro/terminal agnostic
     int  gradPair(float frac) const noexcept;
     int  hudPair (int lv)     const noexcept;
 

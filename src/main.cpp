@@ -327,8 +327,10 @@ int main(int argc, char* argv[]) {
 #endif
 
     while (g_running.load()) {
-        const auto t0 = Clock::now();
         ++frames;
+#ifndef __linux__
+        const auto frame_start = Clock::now();  // used by non-Linux sleep_for limiter
+#endif
 
         // ── Resize ────────────────────────────────────────────────────────────
         if (g_resize.exchange(false))
@@ -557,7 +559,7 @@ int main(int argc, char* argv[]) {
         }
         clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &t_deadline, nullptr);
 #else
-        const auto elapsed = Clock::now() - t0;
+        const auto elapsed = Clock::now() - frame_start;
         if (elapsed < budget) std::this_thread::sleep_for(budget - elapsed);
 #endif
     }
