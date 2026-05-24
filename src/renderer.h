@@ -16,19 +16,32 @@ public:
     static constexpr int    BAR_W_MIN      = 1;
     static constexpr int    BAR_W_MAX      = 8;
     static constexpr int    BAR_W_DEFAULT  = 2;
+
+    // ── Colour palette sizing ─────────────────────────────────────────────────
+    // We request up to GRAD_STEPS_MAX gradient entries, but rebuildColors()
+    // clamps the actual count to COLORS − COLOR_BASE − HUD_PAIRS so that
+    // every init_color() call uses a valid terminal colour index.
+    //
+    // On a standard xterm-256color terminal (COLORS=256, COLOR_BASE=16,
+    // HUD_PAIRS=4) this gives 236 gradient steps — visually identical to 256
+    // while staying within the safe range of colour indices 16..255.
+    //
+    // On truecolor terminals that expose more than 256 colour slots (e.g.
+    // kitty with COLORS=2^24) the full GRAD_STEPS_MAX is used.
     static constexpr int    GRAD_STEPS_MAX = 256;
-    static constexpr int    COLOR_BASE     = 16;
-    static constexpr int    HUD_PAIR_BASE  = GRAD_STEPS_MAX + 5;
+    static constexpr int    COLOR_BASE     = 16;   // start after the 16 ANSI colours
     static constexpr int    HUD_PAIRS      = 4;
+
+    // Compile-time upper bound for HUD pair index — the actual value is
+    // computed at runtime as grad_steps_ + 1 (returned by hudPair()).
+    static constexpr int    HUD_PAIR_BASE_MAX = GRAD_STEPS_MAX + 1;
+
     static constexpr double HUD_HIDE_SECS  = 3.0;
     static constexpr double FEEDBACK_SECS  = 1.5;
     static constexpr int    HUD_ROWS       = 2;
 
-    // Beat flash: average of bars 0–3 must reach this to trigger A_BOLD overlay.
-    static constexpr float  BEAT_THRESHOLD = 0.55f;
-
-    // Colour cycle: hue shift per second (degrees in [0,360)).
-    static constexpr float  HUE_DEG_PER_SEC = 30.0f;
+    static constexpr float  BEAT_THRESHOLD   = 0.55f;
+    static constexpr float  HUE_DEG_PER_SEC  = 30.0f;
 
     Renderer();
     ~Renderer();
@@ -80,28 +93,36 @@ public:
     void setSourceName(const std::string& s) { source_name_ = s; }
 
     // ── Outline mode ─────────────────────────────────────────────────────────
-    /// When true, only the top cell of each bar is drawn (lighter, retro look).
-    void toggleOutline()         { outline_mode_ = !outline_mode_;
-                                   invalidatePrev(); notifyChange();
-                                   showFeedback(outline_mode_ ? "Outline" : "Filled"); }
-    void setOutlineMode(bool v)  { outline_mode_ = v; invalidatePrev(); }
+    // needs_clear_ is mandatory: without it the incremental draw skips erasing
+    // old full-bar pixels before switching to outline-only, leaving ghost bars.
+    void toggleOutline() {
+        outline_mode_ = !outline_mode_;
+        needs_clear_  = true;
+        invalidatePrev();
+        notifyChange();
+        showFeedback(outline_mode_ ? "Outline" : "Filled");
+    }
+    void setOutlineMode(bool v)  { outline_mode_ = v; needs_clear_ = true; invalidatePrev(); }
     bool outlineMode()     const { return outline_mode_; }
 
     // ── Colour cycle ──────────────────────────────────────────────────────────
-    /// When true, the gradient hue rotates slowly over time.
-    void toggleColourCycle()        { colour_cycle_ = !colour_cycle_;
-                                      showFeedback(colour_cycle_ ? "Colour Cycle On"
-                                                                  : "Colour Cycle Off"); }
+    void toggleColourCycle() {
+        colour_cycle_ = !colour_cycle_;
+        showFeedback(colour_cycle_ ? "Colour Cycle On" : "Colour Cycle Off");
+    }
     void setColourCycle(bool v)     { colour_cycle_ = v; }
     bool colourCycle()        const { return colour_cycle_; }
 
     // ── Per-bar colour ────────────────────────────────────────────────────────
-    /// When true, colour maps to bar index (bass→treble) rather than screen row.
-    void togglePerBarColour()       { per_bar_colour_ = !per_bar_colour_;
-                                      invalidatePrev(); notifyChange();
-                                      showFeedback(per_bar_colour_ ? "Bar Colour"
-                                                                    : "Row Colour"); }
-    void setPerBarColour(bool v)    { per_bar_colour_ = v; invalidatePrev(); }
+    // Same ghost-bar issue as outline mode — needs_clear_ required.
+    void togglePerBarColour() {
+        per_bar_colour_ = !per_bar_colour_;
+        needs_clear_    = true;
+        invalidatePrev();
+        notifyChange();
+        showFeedback(per_bar_colour_ ? "Bar Colour" : "Row Colour");
+    }
+    void setPerBarColour(bool v)    { per_bar_colour_ = v; needs_clear_ = true; invalidatePrev(); }
     bool perBarColour()       const { return per_bar_colour_; }
 
 private:
@@ -114,38 +135,35 @@ private:
     int   bar_w_       {BAR_W_DEFAULT};
     int   gap_w_       {1};
 
-    // HUD
     TP   last_change_tp_;
     bool hud_visible_  {true};
     bool hud_pinned_   {false};
     bool needs_clear_  {true};
 
-    // Feedback flash
     std::string feedback_msg_;
     TP          feedback_tp_;
     bool        feedback_active_ {false};
 
     std::string source_name_;
-
-    // Beat flash
     bool beat_flash_ {false};
 
-    // Incremental redraw state
     std::vector<int> prev_l_, prev_r_;
     int              prev_avail_      {0};
+
+    // Actual gradient steps — clamped at runtime to the terminal's COLORS so
+    // that all colour indices stay within [COLOR_BASE, COLORS-1].
+    // The HUD's 4 colour slots are placed immediately after the gradient
+    // (at COLOR_BASE + grad_steps_), so the hard constraint is:
+    //   COLOR_BASE + grad_steps_ + HUD_PAIRS <= COLORS
     int              grad_steps_      {GRAD_STEPS_MAX};
     int              prev_grad_avail_ {0};
 
-    // Rendering modes
     bool outline_mode_   {false};
     bool colour_cycle_   {false};
     bool per_bar_colour_ {false};
 
-    // Colour cycle state
-    float hue_offset_  {0.0f};  // degrees [0, 360)
+    float hue_offset_  {0.0f};
     TP    last_frame_tp_;
-
-    // Cached bar count for per-bar colour mapping
     int   last_bar_count_ {0};
 
     void resetPrev(int n, int avail);
@@ -153,8 +171,12 @@ private:
 
     void rebuildColors();
     void applyNcursesSettings();
-    static bool detectTruecolor() noexcept;  // env-var based, distro/terminal agnostic
+    static bool detectTruecolor() noexcept;
+
     int  gradPair(float frac) const noexcept;
+    // HUD pairs live at grad_steps_+1 .. grad_steps_+HUD_PAIRS.
+    // This is always valid because grad_steps_ is clamped so that
+    // COLOR_BASE + grad_steps_ + HUD_PAIRS <= COLORS.
     int  hudPair (int lv)     const noexcept;
 
     void drawBarColumn(int col, int bar_idx, int total_bars,
