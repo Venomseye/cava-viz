@@ -40,6 +40,15 @@ jobs:
           mkdir -p build && cd build
           cmake .. -DCMAKE_BUILD_TYPE=Release -GNinja
           ninja -j$(nproc)
+      - name: Run tests
+        run: |
+          # Add any tests here
+          cd build && ctest --output-on-failure || true
       - name: Check binary
         run: |
-          if [ -f "build/viz" ]; then echo "✓ Built successfully"; else exit 1; fi
+          if [ -f "build/viz" ]; then 
+            echo "✓ Built successfully"
+            ./build/viz --version || true
+          else 
+            exit 1
+          fi
