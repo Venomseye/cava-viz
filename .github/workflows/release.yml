@@ -7,17 +7,8 @@ on:
 
 jobs:
   build-artifacts:
-    name: Build ${{ matrix.os }} artifact
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest]
-        include:
-          - os: ubuntu-latest
-            artifact_name: viz
-            asset_name: cava-viz-linux-x64
-
+    name: Build artifact
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - name: Install dependencies
@@ -35,12 +26,12 @@ jobs:
         run: |
           mkdir -p release
           cp build/viz release/
-          tar -czf ${{ matrix.asset_name }}.tar.gz -C release viz
+          tar -czf cava-viz-linux-x64.tar.gz -C release viz
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.asset_name }}
-          path: ${{ matrix.asset_name }}.tar.gz
+          name: cava-viz-linux-x64
+          path: cava-viz-linux-x64.tar.gz
           retention-days: 1
 
   create-release:
