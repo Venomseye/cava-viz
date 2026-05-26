@@ -39,10 +39,10 @@
 // Values: ~0.01 at 50 Hz, ~0.1 at 100 Hz, ~1.0 at 1–4 kHz, ~0.5 at 10 kHz.
 double FFTProcessor::aWeightFactor(double freq) noexcept {
     if (freq <= 0.0) return 1.0;
-    const double f2 = freq * freq;
-    const double f4 = f2 * f2;
+    const double f2  = freq * freq;
+    const double f4  = f2 * f2;
     // Ra(f) formula from IEC 61672
-    const double ra = (12200.0 * 12200.0 * f4)
+    const double ra  = (12200.0 * 12200.0 * f4)
                      / ((f2 + 20.6  * 20.6)
                      *  std::sqrt((f2 + 107.7 * 107.7) * (f2 + 737.9 * 737.9))
                      *  (f2 + 12200.0 * 12200.0));
@@ -67,7 +67,7 @@ void FFTProcessor::initBufferSizes() {
     else if (rate_ >  75000 && rate_ <= 150000) base *= 16;
     else if (rate_ > 150000 && rate_ <= 300000) base *= 32;
     else if (rate_ > 300000)                    base *= 64;
-    fft_buf_size_ = base;
+    fft_buf_size_  = base;
     bass_buf_size_ = base * 2;
 }
 
@@ -91,7 +91,7 @@ FFTProcessor::~FFTProcessor() { freeFFTW(); }
 void FFTProcessor::reinit(int new_channels) {
     {
         std::lock_guard<std::mutex> lk(mtx_);
-        channels_ = new_channels;
+        channels_       = new_channels;
         input_buf_size_ = bass_buf_size_ * channels_;
         input_buf_.assign(input_buf_size_, 0.0);
         ring_.assign(input_buf_size_, 0.0);
@@ -108,12 +108,12 @@ void FFTProcessor::reinit(int new_channels) {
     prev_out_.clear();
     bars_l_.clear();    bars_r_.clear();
 
-    sens_ = 1.0 / (double)man_sens_.load();
-    sens_init_ = true;
-    framerate_ = 60.0;
-    frame_skip_ = 1;
-    corr_ema_ = 1.0;
-    auto_mono_collapsed_ = false;
+    sens_               = 1.0 / (double)man_sens_.load();
+    sens_init_          = true;
+    framerate_          = 60.0;
+    frame_skip_         = 1;
+    corr_ema_           = 1.0;
+    auto_mono_collapsed_= false;
 }
 
 // ── Hann windows ──────────────────────────────────────────────────────────────
@@ -123,32 +123,32 @@ void FFTProcessor::buildHannWindows() {
     for (int i = 0; i < bass_buf_size_; ++i)
         bass_win_[i] = 0.5 * (1.0 - std::cos(2.0 * M_PI * i / (bass_buf_size_ - 1)));
     for (int i = 0; i < fft_buf_size_; ++i)
-        mid_win_[i] = 0.5 * (1.0 - std::cos(2.0 * M_PI * i / (fft_buf_size_  - 1)));
+        mid_win_[i]  = 0.5 * (1.0 - std::cos(2.0 * M_PI * i / (fft_buf_size_  - 1)));
 }
 
 // ── FFTW allocation ───────────────────────────────────────────────────────────
 void FFTProcessor::initFFTW(bool fast) {
     const unsigned flags = fast ? FFTW_ESTIMATE : FFTW_MEASURE;
 
-    in_bass_l_ = fftw_alloc_real(bass_buf_size_);
-    in_mid_l_ = fftw_alloc_real(fft_buf_size_);
+    in_bass_l_  = fftw_alloc_real(bass_buf_size_);
+    in_mid_l_   = fftw_alloc_real(fft_buf_size_);
     out_bass_l_ = fftw_alloc_complex(bass_buf_size_ / 2 + 1);
-    out_mid_l_ = fftw_alloc_complex(fft_buf_size_  / 2 + 1);
+    out_mid_l_  = fftw_alloc_complex(fft_buf_size_  / 2 + 1);
     if (!in_bass_l_ || !in_mid_l_ || !out_bass_l_ || !out_mid_l_)
         throw std::runtime_error("FFTProcessor: FFTW alloc failed (L)");
 
     plan_bass_l_ = fftw_plan_dft_r2c_1d(bass_buf_size_, in_bass_l_, out_bass_l_, flags);
-    plan_mid_l_ = fftw_plan_dft_r2c_1d(fft_buf_size_,  in_mid_l_,  out_mid_l_,  flags);
+    plan_mid_l_  = fftw_plan_dft_r2c_1d(fft_buf_size_,  in_mid_l_,  out_mid_l_,  flags);
 
     if (channels_ == 2) {
-        in_bass_r_ = fftw_alloc_real(bass_buf_size_);
-        in_mid_r_ = fftw_alloc_real(fft_buf_size_);
+        in_bass_r_  = fftw_alloc_real(bass_buf_size_);
+        in_mid_r_   = fftw_alloc_real(fft_buf_size_);
         out_bass_r_ = fftw_alloc_complex(bass_buf_size_ / 2 + 1);
-        out_mid_r_ = fftw_alloc_complex(fft_buf_size_  / 2 + 1);
+        out_mid_r_  = fftw_alloc_complex(fft_buf_size_  / 2 + 1);
         if (!in_bass_r_ || !in_mid_r_ || !out_bass_r_ || !out_mid_r_)
             throw std::runtime_error("FFTProcessor: FFTW alloc failed (R)");
         plan_bass_r_ = fftw_plan_dft_r2c_1d(bass_buf_size_, in_bass_r_, out_bass_r_, flags);
-        plan_mid_r_ = fftw_plan_dft_r2c_1d(fft_buf_size_,  in_mid_r_,  out_mid_r_,  flags);
+        plan_mid_r_  = fftw_plan_dft_r2c_1d(fft_buf_size_,  in_mid_r_,  out_mid_r_,  flags);
     }
 
     std::memset(in_bass_l_, 0, sizeof(double) * bass_buf_size_);
@@ -157,17 +157,17 @@ void FFTProcessor::initFFTW(bool fast) {
 
 void FFTProcessor::freeFFTW() {
     if (plan_bass_l_) { fftw_destroy_plan(plan_bass_l_); plan_bass_l_ = nullptr; }
-    if (plan_mid_l_)  { fftw_destroy_plan(plan_mid_l_);  plan_mid_l_ = nullptr; }
+    if (plan_mid_l_)  { fftw_destroy_plan(plan_mid_l_);  plan_mid_l_  = nullptr; }
     if (plan_bass_r_) { fftw_destroy_plan(plan_bass_r_); plan_bass_r_ = nullptr; }
-    if (plan_mid_r_)  { fftw_destroy_plan(plan_mid_r_);  plan_mid_r_ = nullptr; }
+    if (plan_mid_r_)  { fftw_destroy_plan(plan_mid_r_);  plan_mid_r_  = nullptr; }
     if (out_bass_l_)  { fftw_free(out_bass_l_); out_bass_l_ = nullptr; }
-    if (out_mid_l_)   { fftw_free(out_mid_l_);  out_mid_l_ = nullptr; }
+    if (out_mid_l_)   { fftw_free(out_mid_l_);  out_mid_l_  = nullptr; }
     if (out_bass_r_)  { fftw_free(out_bass_r_); out_bass_r_ = nullptr; }
-    if (out_mid_r_)   { fftw_free(out_mid_r_);  out_mid_r_ = nullptr; }
-    if (in_bass_l_)   { fftw_free(in_bass_l_);  in_bass_l_ = nullptr; }
-    if (in_mid_l_)    { fftw_free(in_mid_l_);   in_mid_l_ = nullptr; }
-    if (in_bass_r_)   { fftw_free(in_bass_r_);  in_bass_r_ = nullptr; }
-    if (in_mid_r_)    { fftw_free(in_mid_r_);   in_mid_r_ = nullptr; }
+    if (out_mid_r_)   { fftw_free(out_mid_r_);  out_mid_r_  = nullptr; }
+    if (in_bass_l_)   { fftw_free(in_bass_l_);  in_bass_l_  = nullptr; }
+    if (in_mid_l_)    { fftw_free(in_mid_l_);   in_mid_l_   = nullptr; }
+    if (in_bass_r_)   { fftw_free(in_bass_r_);  in_bass_r_  = nullptr; }
+    if (in_mid_r_)    { fftw_free(in_mid_r_);   in_mid_r_   = nullptr; }
 }
 
 // ── Frequency plan ────────────────────────────────────────────────────────────
@@ -230,7 +230,7 @@ void FFTProcessor::buildPlan(int num_bars) {
                 if (cut_lo_[n] <= cut_lo_[n-1]) {
                     int maxbin = (n < bass_cut_bar_) ? bass_buf_size_/2 : fft_buf_size_/2;
                     if (cut_lo_[n-1] + 1 < maxbin + 1) {
-                        cut_lo_[n] = cut_lo_[n-1] + 1;
+                        cut_lo_[n]   = cut_lo_[n-1] + 1;
                         cut_hi_[n-1] = cut_lo_[n] - 1;
                     }
                 }
@@ -248,7 +248,7 @@ void FFTProcessor::buildPlan(int num_bars) {
 
     // EQ per bar — CAVA formula
     for (int n = 0; n < num_bars; ++n) {
-        eq_[n] = 1.0 / std::pow(2.0, 28.0);
+        eq_[n]  = 1.0 / std::pow(2.0, 28.0);
         eq_[n] *= std::pow((double)cut_freq[n+1], 0.85);
         eq_[n] /= (n < bass_cut_bar_) ? std::log2((double)bass_buf_size_)
                                        : std::log2((double)fft_buf_size_);
@@ -277,7 +277,7 @@ void FFTProcessor::addSamples(const std::vector<float>& s, int /*ch*/) {
 
 // ── O(n) monstercat: two-pass rolling-max ────────────────────────────────────
 void FFTProcessor::applyMonstercat(std::vector<double>& bars, double factor) const {
-    const int    n = (int)bars.size();
+    const int    n     = (int)bars.size();
     if (n < 2 || factor <= 0.0) return;
     const double decay = factor * 1.5;
     for (int i = 1;   i < n;   ++i) bars[i] = std::max(bars[i], bars[i-1] / decay);
@@ -329,7 +329,7 @@ bool FFTProcessor::execute(int num_bars, float /*fps*/) {
         }
     } else {
         for (int n = 0; n < bass_buf_size_; ++n) in_bass_l_[n] = input_buf_[n];
-        for (int n = 0; n < fft_buf_size_;  ++n) in_mid_l_[n] = input_buf_[n];
+        for (int n = 0; n < fft_buf_size_;  ++n) in_mid_l_[n]  = input_buf_[n];
     }
 
     // ── Hann window ───────────────────────────────────────────────────────────
@@ -395,8 +395,8 @@ bool FFTProcessor::execute(int num_bars, float /*fps*/) {
             sum_lr += l * r;
         }
         double denom = std::sqrt(sum_ll * sum_rr);
-        double corr = (denom > 1e-12) ? (sum_lr / denom) : 1.0;
-        corr = std::clamp(corr, -1.0, 1.0);
+        double corr  = (denom > 1e-12) ? (sum_lr / denom) : 1.0;
+        corr  = std::clamp(corr, -1.0, 1.0);
         corr_ema_ = corr_ema_ * (1.0 - CORR_EMA_K) + corr * CORR_EMA_K;
 
         if (auto_mono_) {
@@ -408,8 +408,8 @@ bool FFTProcessor::execute(int num_bars, float /*fps*/) {
             auto_mono_collapsed_ = false;
         }
     } else {
-        corr_ema_ = 1.0;
-        auto_mono_collapsed_ = false;
+        corr_ema_           = 1.0;
+        auto_mono_collapsed_= false;
     }
 
     // ── Sensitivity ───────────────────────────────────────────────────────────
@@ -444,10 +444,10 @@ bool FFTProcessor::execute(int num_bars, float /*fps*/) {
     //
     // When bass_smooth_ == 0 all bars use identical constants (original CAVA).
 
-    const double fps_d = std::max(framerate_, 1.0);
-    const double fr_mod = 66.0 / fps_d;
+    const double fps_d       = std::max(framerate_, 1.0);
+    const double fr_mod      = 66.0 / fps_d;
     const double gravity_mod = 2.0 / NOISE_REDUCTION * (double)gravity_factor_;
-    const double fall_step = 0.028 * fr_mod;
+    const double fall_step   = 0.028 * fr_mod;
     const double decay_frame = std::pow(NOISE_REDUCTION, fps_d / 66.0);
 
     int overshoot = 0;
@@ -456,15 +456,15 @@ bool FFTProcessor::execute(int num_bars, float /*fps*/) {
     for (int n = 0; n < smooth_count; ++n) {
 
         // Per-bar smoothing weight: 1 at bass, 0 at treble.
-        const int    n_bar = n % num_bars;
+        const int    n_bar    = n % num_bars;
         const double bar_frac = (num_bars > 1)
                               ? (double)n_bar / (double)(num_bars - 1)
                               : 1.0;
-        const double bass_w = (double)bass_smooth_ * (1.0 - bar_frac);
+        const double bass_w   = (double)bass_smooth_ * (1.0 - bar_frac);
 
         const double bar_decay = std::min(0.99, decay_frame + (1.0 - decay_frame) * bass_w);
         // Bass bars fall more slowly so transients read more naturally.
-        const double bar_fall = fall_step / std::max(0.1, 1.0 + bass_w * 2.0);
+        const double bar_fall  = fall_step / std::max(0.1, 1.0 + bass_w * 2.0);
 
         // ── Rise smoothing (applied after sensitivity) ────────────────────────
         if (rise_factor_ > 0.0f && cava_out_[n] > prev_out_[n]) {
@@ -503,7 +503,7 @@ bool FFTProcessor::execute(int num_bars, float /*fps*/) {
         }
         sens_ = std::max(0.01, std::min(sens_, 1000.0));
     } else {
-        sens_ = 1.0;
+        sens_      = 1.0;
         sens_init_ = true;
     }
 

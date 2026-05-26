@@ -14,12 +14,12 @@ public:
     PulseAudioCapture();
     ~PulseAudioCapture() override;
 
-    PulseAudioCapture(const PulseAudioCapture&) = delete;
-    PulseAudioCapture& operator = (const PulseAudioCapture&) = delete;
+    PulseAudioCapture(const PulseAudioCapture&)            = delete;
+    PulseAudioCapture& operator=(const PulseAudioCapture&) = delete;
 
-    bool init(const std::string& source = "",
-              int                sample_rate = 44100,
-              int                channels = 1) override;
+    bool init(const std::string& source      = "",
+              int                sample_rate  = 44100,
+              int                channels     = 1) override;
     bool start(AudioCallback cb)     override;
     void stop()                      override;
     bool hasFailed() const           override { return failed_.load(); }

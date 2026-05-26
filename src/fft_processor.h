@@ -28,28 +28,28 @@
 
 class FFTProcessor {
 public:
-    static constexpr int    LOW_CUT_OFF = 50;    // Hz
-    static constexpr int    HIGH_CUT_OFF = 20000; // Hz
-    static constexpr int    BASS_CUT_OFF = 100;   // Hz — dual-FFT split point
+    static constexpr int    LOW_CUT_OFF     = 50;    // Hz
+    static constexpr int    HIGH_CUT_OFF    = 20000; // Hz
+    static constexpr int    BASS_CUT_OFF    = 100;   // Hz — dual-FFT split point
     static constexpr double NOISE_REDUCTION = 0.77;  // CAVA integral decay factor
 
-    static constexpr float SENS_MIN = 0.2f;
-    static constexpr float SENS_MAX = 8.0f;
-    static constexpr float SENS_STEP = 0.1f;
+    static constexpr float SENS_MIN     = 0.2f;
+    static constexpr float SENS_MAX     = 8.0f;
+    static constexpr float SENS_STEP    = 0.1f;
     static constexpr float SENS_DEFAULT = 1.5f;
 
-    static constexpr double MONSTERCAT = 1.5;
+    static constexpr double MONSTERCAT  = 1.5;
 
     // Stereo auto-collapse: collapse to mono when EMA correlation exceeds ON
     // threshold; restore stereo when it drops below OFF threshold (hysteresis).
-    static constexpr double MONO_CORR_ON = 0.97;
+    static constexpr double MONO_CORR_ON  = 0.97;
     static constexpr double MONO_CORR_OFF = 0.90;
-    static constexpr double CORR_EMA_K = 0.05;   // EMA smoothing coefficient
+    static constexpr double CORR_EMA_K    = 0.05;   // EMA smoothing coefficient
 
     FFTProcessor(int sample_rate = 44100, int channels = 2);
     ~FFTProcessor();
-    FFTProcessor(const FFTProcessor&) = delete;
-    FFTProcessor& operator = (const FFTProcessor&) = delete;
+    FFTProcessor(const FFTProcessor&)            = delete;
+    FFTProcessor& operator=(const FFTProcessor&) = delete;
 
     /**
      * Reinitialise in-place for a different channel count.

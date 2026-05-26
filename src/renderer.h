@@ -185,6 +185,7 @@ private:
 
     void rebuildColors();
     void applyNcursesSettings();
+    void applyTermOverride() noexcept;
 
     static bool detectTruecolor() noexcept;
 

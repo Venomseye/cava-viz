@@ -13,9 +13,9 @@ public:
     virtual ~AudioCapture() = default;
 
     /// Store configuration (does not open device).
-    virtual bool init(const std::string& source = "",
-                      int                sample_rate = 44100,
-                      int                channels = 1) = 0;
+    virtual bool init(const std::string& source      = "",
+                      int                sample_rate  = 44100,
+                      int                channels     = 1) = 0;
 
     /// Open device and start capture thread.
     virtual bool start(AudioCallback cb) = 0;

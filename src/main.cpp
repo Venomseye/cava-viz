@@ -167,7 +167,7 @@ int main(int argc, char* argv[]) {
     sigemptyset(&sa.sa_mask);
     sigaction(SIGINT,  &sa, nullptr);
     sigaction(SIGTERM, &sa, nullptr);
-    sigaction(SIGWINCH, &sa, nullptr);
+    sigaction(SIGWINCH,&sa, nullptr);
 
     Config cfg;
     cfg.load();
@@ -180,10 +180,10 @@ int main(int argc, char* argv[]) {
     setpriority(PRIO_PROCESS, 0, 5);
 #endif
 
-    std::string backend = "auto";
+    std::string backend   = "auto";
     std::string cli_source;
-    int  sample_rate = 44100;
-    bool use_mic = false;
+    int  sample_rate      = 44100;
+    bool use_mic          = false;
     bool force_auto_width = false;
 
     static const struct option long_opts[] = {
@@ -200,13 +200,13 @@ int main(int argc, char* argv[]) {
     int o;
     while ((o = getopt_long(argc, argv, "b:s:Mr:t:f:wh", long_opts, nullptr)) != -1) {
         switch (o) {
-            case 'b': backend = optarg;                              break;
-            case 's': cli_source = optarg;                              break;
-            case 'M': use_mic = true;                                break;
-            case 'r': sample_rate = std::stoi(optarg);                   break;
-            case 't': { int ti = std::stoi(optarg);
-                        if (ti>=0&&ti<(int)Theme::COUNT) cfg.theme = ti; }     break;
-            case 'f': cfg.fps = std::max(1, std::stoi(optarg));      break;
+            case 'b': backend          = optarg;                              break;
+            case 's': cli_source       = optarg;                              break;
+            case 'M': use_mic          = true;                                break;
+            case 'r': sample_rate      = std::stoi(optarg);                   break;
+            case 't': { int ti=std::stoi(optarg);
+                        if (ti>=0&&ti<(int)Theme::COUNT) cfg.theme=ti; }     break;
+            case 'f': cfg.fps          = std::max(1, std::stoi(optarg));      break;
             case 'w': force_auto_width = true;                                break;
             case 'h': print_usage(argv[0]); return 0;
             default:  print_usage(argv[0]); return 1;
@@ -289,7 +289,7 @@ int main(int argc, char* argv[]) {
 
     // ── inotify ───────────────────────────────────────────────────────────────
     const std::string cfg_path = Config::configPath();
-    const std::string cfg_dir = cfg_path.substr(0, cfg_path.rfind('/'));
+    const std::string cfg_dir  = cfg_path.substr(0, cfg_path.rfind('/'));
     const std::string cfg_file = cfg_path.substr(cfg_path.rfind('/') + 1);
     int inotify_fd = -1;
 #ifdef __linux__
@@ -304,19 +304,19 @@ int main(int argc, char* argv[]) {
 #endif
 
     // ── Main loop ─────────────────────────────────────────────────────────────
-    using Clock = std::chrono::steady_clock;
+    using Clock    = std::chrono::steady_clock;
     using Duration = std::chrono::duration<double>;
-    using us = std::chrono::microseconds;
+    using us       = std::chrono::microseconds;
 
     const int target_fps = std::clamp(cfg.fps, 10, 240);
     const us  budget(1'000'000 / target_fps);
-    double fps = (double)target_fps;
-    int fcount = 0, frames = 0;
-    auto fps_tp = Clock::now();
+    double fps   = (double)target_fps;
+    int fcount   = 0, frames = 0;
+    auto fps_tp  = Clock::now();
     const int WATCH = target_fps * 2;
 
     static constexpr int SILENCE_SEC = 5;
-    int silent_frames = 0;
+    int silent_frames     = 0;
     const int silence_lim = target_fps * SILENCE_SEC;
 
     // Absolute-deadline frame limiter (Linux): initialise the first deadline
@@ -343,7 +343,7 @@ int main(int argc, char* argv[]) {
             char ibuf[sizeof(struct inotify_event) + NAME_MAX + 1];
             ssize_t ilen;
             while ((ilen = read(inotify_fd, ibuf, sizeof(ibuf))) > 0) {
-                for (const char* p = ibuf; p < ibuf + ilen;) {
+                for (const char* p = ibuf; p < ibuf + ilen; ) {
                     const auto* ev = reinterpret_cast<const struct inotify_event*>(p);
                     if (ev->len > 0 && cfg_file == ev->name) {
                         Config nc;
@@ -381,7 +381,7 @@ int main(int argc, char* argv[]) {
                     if (audio) {
                         bname = audio->backendName();
                         if (!src.empty()) {
-                            active_source = src;
+                            active_source   = src;
                             cfg.last_source = src;
                             cfg.saveState();
                             renderer.setSourceName(active_source);
@@ -453,7 +453,7 @@ int main(int argc, char* argv[]) {
             case 's': {
                 if (audio) { audio->stop(); audio.reset(); }
                 cfg.stereo = !cfg.stereo;
-                channels = cfg.stereo ? 2 : 1;
+                channels   = cfg.stereo ? 2 : 1;
                 fft.reinit(channels);
                 applyFFTConfig(fft, cfg);
                 silent_frames = 0;
@@ -465,7 +465,7 @@ int main(int argc, char* argv[]) {
                 } else {
                     // Revert on failure
                     cfg.stereo = !cfg.stereo;
-                    channels = cfg.stereo ? 2 : 1;
+                    channels   = cfg.stereo ? 2 : 1;
                     fft.reinit(channels);
                     applyFFTConfig(fft, cfg);
                     startAudio();
@@ -537,7 +537,7 @@ int main(int argc, char* argv[]) {
         // ── FPS tracking ──────────────────────────────────────────────────────
         ++fcount;
         {
-            const auto   now = Clock::now();
+            const auto   now  = Clock::now();
             const double secs = Duration(now - fps_tp).count();
             if (secs >= 1.0) { fps = fcount / secs; fcount = 0; fps_tp = now; }
         }

@@ -26,9 +26,9 @@ std::string Config::statePath() {
 
 static bool parseKV(const char* line, char key[64], char val[256]) {
     if (line[0]=='#'||line[0]=='\n'||line[0]=='\r') return false;
-    if (std::sscanf(line," %63[^=] = %255[^\n]", key, val) != 2) return false;
-    for (int i = (int)strlen(key)-1; i>=0&&key[i]==' '; --i) key[i] = '\0';
-    for (int i = (int)strlen(val)-1; i>=0&&(val[i]==' '||val[i]=='\r'); --i) val[i] = '\0';
+    if (std::sscanf(line," %63[^=] = %255[^\n]",key,val) != 2) return false;
+    for (int i=(int)strlen(key)-1; i>=0&&key[i]==' '; --i) key[i]='\0';
+    for (int i=(int)strlen(val)-1; i>=0&&(val[i]==' '||val[i]=='\r'); --i) val[i]='\0';
     return key[0] != '\0';
 }
 static bool asBool(const char* v) {
@@ -42,38 +42,38 @@ bool Config::load() {
     while (std::fgets(line, sizeof(line), f)) {
         if (!parseKV(line, k, v)) continue;
         // Visual
-        if      (!strcmp(k,"theme"))          theme = std::atoi(v);
-        else if (!strcmp(k,"bar_width"))       bar_width = std::atoi(v);
-        else if (!strcmp(k,"gap_width"))       gap_width = std::atoi(v);
-        else if (!strcmp(k,"hud_pinned"))      hud_pinned = asBool(v);
+        if      (!strcmp(k,"theme"))          theme          = std::atoi(v);
+        else if (!strcmp(k,"bar_width"))       bar_width      = std::atoi(v);
+        else if (!strcmp(k,"gap_width"))       gap_width      = std::atoi(v);
+        else if (!strcmp(k,"hud_pinned"))      hud_pinned     = asBool(v);
         // Rendering modes
-        else if (!strcmp(k,"outline_mode"))    outline_mode = asBool(v);
-        else if (!strcmp(k,"colour_cycle"))    colour_cycle = asBool(v);
+        else if (!strcmp(k,"outline_mode"))    outline_mode   = asBool(v);
+        else if (!strcmp(k,"colour_cycle"))    colour_cycle   = asBool(v);
         else if (!strcmp(k,"per_bar_colour"))  per_bar_colour = asBool(v);
         // Audio
-        else if (!strcmp(k,"stereo"))          stereo = asBool(v);
-        else if (!strcmp(k,"high_cutoff"))     high_cutoff = std::atoi(v);
+        else if (!strcmp(k,"stereo"))          stereo         = asBool(v);
+        else if (!strcmp(k,"high_cutoff"))     high_cutoff    = std::atoi(v);
         // FFT / Smoothing
-        else if (!strcmp(k,"gravity"))         gravity = (float)std::atof(v);
-        else if (!strcmp(k,"monstercat"))      monstercat = (float)std::atof(v);
-        else if (!strcmp(k,"rise_factor"))     rise_factor = (float)std::atof(v);
-        else if (!strcmp(k,"bass_smooth"))     bass_smooth = (float)std::atof(v);
+        else if (!strcmp(k,"gravity"))         gravity        = (float)std::atof(v);
+        else if (!strcmp(k,"monstercat"))      monstercat     = (float)std::atof(v);
+        else if (!strcmp(k,"rise_factor"))     rise_factor    = (float)std::atof(v);
+        else if (!strcmp(k,"bass_smooth"))     bass_smooth    = (float)std::atof(v);
         // Audio processing
-        else if (!strcmp(k,"a_weighting"))     a_weighting = asBool(v);
-        else if (!strcmp(k,"noise_gate"))      noise_gate = (float)std::atof(v);
-        else if (!strcmp(k,"auto_mono"))       auto_mono = asBool(v);
+        else if (!strcmp(k,"a_weighting"))     a_weighting    = asBool(v);
+        else if (!strcmp(k,"noise_gate"))      noise_gate     = (float)std::atof(v);
+        else if (!strcmp(k,"auto_mono"))       auto_mono      = asBool(v);
         // Sensitivity
-        else if (!strcmp(k,"sensitivity"))     sensitivity = (float)std::atof(v);
-        else if (!strcmp(k,"auto_sens"))       auto_sens = asBool(v);
+        else if (!strcmp(k,"sensitivity"))     sensitivity    = (float)std::atof(v);
+        else if (!strcmp(k,"auto_sens"))       auto_sens      = asBool(v);
         // Performance
-        else if (!strcmp(k,"fps"))             fps = std::atoi(v);
+        else if (!strcmp(k,"fps"))             fps            = std::atoi(v);
     }
     std::fclose(f);
 
 #define CW(field, lo, hi) \
-    { auto _c = std::clamp(field, (lo), (hi)); \
-      if (_c!=field) std::fprintf(stderr,"cava-viz: '%s' out of range, clamped.\n", #field); \
-      field = _c; }
+    { auto _c=std::clamp(field,(lo),(hi)); \
+      if(_c!=field) std::fprintf(stderr,"cava-viz: '%s' out of range, clamped.\n",#field); \
+      field=_c; }
     CW(theme,        0,      11)
     CW(bar_width,    1,      8)
     CW(gap_width,    0,      2)
