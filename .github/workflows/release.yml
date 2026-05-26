@@ -6,7 +6,45 @@ on:
       - 'v*'
 
 jobs:
-  release:
+  build-artifacts:
+    name: Build ${{ matrix.os }} artifact
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest]
+        include:
+          - os: ubuntu-latest
+            artifact_name: viz
+            asset_name: cava-viz-linux-x64
+
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake pkg-config libfftw3-dev libncursesw5-dev libpulse-dev libpipewire-0.3-dev ninja-build
+      - name: Build
+        run: |
+          mkdir -p build && cd build
+          cmake .. -DCMAKE_BUILD_TYPE=Release -GNinja
+          ninja -j$(nproc)
+      - name: Strip binary
+        run: strip build/viz
+      - name: Create artifact
+        run: |
+          mkdir -p release
+          cp build/viz release/
+          tar -czf ${{ matrix.asset_name }}.tar.gz -C release viz
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset_name }}
+          path: ${{ matrix.asset_name }}.tar.gz
+          retention-days: 1
+
+  create-release:
+    needs: build-artifacts
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -14,10 +52,21 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - name: Prepare release assets
+        run: |
+          mkdir -p release-assets
+          find artifacts -name "*.tar.gz" -exec mv {} release-assets/ \;
+          ls -la release-assets/
       - name: Create Release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         with:
           draft: false
           prerelease: ${{ contains(github.ref, 'alpha') || contains(github.ref, 'beta') }}
+          files: release-assets/*
+          generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
