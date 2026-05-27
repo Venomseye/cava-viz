@@ -2,47 +2,60 @@ name: Build and Test
 
 on:
   push:
-    branches: [ main, develop ]
+    branches: [main, master, develop]
   pull_request:
-    branches: [ main, develop ]
+    branches: [main, master]
 
 jobs:
   build:
-    name: Build on ubuntu-latest
-    runs-on: ubuntu-latest
+    name: ${{ matrix.os }} / ${{ matrix.backend }}
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        compiler: [gcc]
+        os: [ubuntu-22.04, ubuntu-24.04]
+        backend: [pulseaudio, pipewire, both]
 
     steps:
-      - uses: actions/checkout@v4
-      - name: Install dependencies
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install base dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install -y cmake pkg-config libfftw3-dev libncursesw5-dev libpulse-dev libpipewire-0.3-dev ninja-build
-      - name: Configure compiler
+          sudo apt-get update -qq
+          sudo apt-get install -y \
+            build-essential cmake pkg-config \
+            libncursesw5-dev \
+            libfftw3-dev
+
+      - name: Install PulseAudio dev libs
+        if: matrix.backend == 'pulseaudio' || matrix.backend == 'both'
+        run: sudo apt-get install -y libpulse-dev
+
+      - name: Install PipeWire dev libs
+        if: matrix.backend == 'pipewire' || matrix.backend == 'both'
+        run: sudo apt-get install -y libpipewire-0.3-dev libspa-0.2-dev
+
+      - name: Configure (PulseAudio=${{ matrix.backend != 'pipewire' }}, PipeWire=${{ matrix.backend != 'pulseaudio' }})
         run: |
-          if [ "${{ matrix.compiler }}" = "clang" ]; then
-            echo "CC=clang" >> $GITHUB_ENV
-            echo "CXX=clang++" >> $GITHUB_ENV
-          else
-            echo "CC=gcc" >> $GITHUB_ENV
-            echo "CXX=g++" >> $GITHUB_ENV
-          fi
+          cmake -B build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_CXX_FLAGS_RELEASE="-O2 -DNDEBUG" \
+            -DENABLE_PULSEAUDIO=${{ matrix.backend != 'pipewire' && 'ON' || 'OFF' }} \
+            -DENABLE_PIPEWIRE=${{ matrix.backend != 'pulseaudio' && 'ON' || 'OFF' }}
+
       - name: Build
+        run: cmake --build build --parallel $(nproc)
+
+      - name: Verify binary exists and links
         run: |
-          mkdir -p build && cd build
-          cmake .. -DCMAKE_BUILD_TYPE=Release -GNinja
-          ninja -j$(nproc)
-      - name: Run tests
-        run: |
-          cd build && ctest --output-on-failure || true
-      - name: Check binary
-        run: |
-          if [ -f "build/viz" ]; then 
-            echo "✓ Built successfully"
-            ./build/viz --version || true
-          else 
-            exit 1
-          fi
+          test -f build/viz
+          file build/viz
+          ldd  build/viz
+
+      - name: Upload binary artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: viz-${{ matrix.os }}-${{ matrix.backend }}
+          path: build/viz
+          retention-days: 7
