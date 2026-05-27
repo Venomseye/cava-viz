@@ -81,10 +81,10 @@ static const Stop kGrad[static_cast<int>(Theme::COUNT)][7] = {
         {0.67f, { 970, 679,   0}},  {0.83f, {1000, 867,   0}},
         {1.00f, {1000, 1000,   0}} },
 
-    // WHITE  cool-slate → silver → pearl → pure-white
-    {   {0.00f, { 370, 391, 420}},  {0.17f, { 468, 490, 520}},
-        {0.33f, { 580, 601, 630}},  {0.50f, { 686, 704, 730}},
-        {0.67f, { 797, 811, 830}},  {0.83f, { 902, 909, 920}},
+    // WHITE  solid bright white — no gradient, matches cava's default solid mode
+    {   {0.00f, {1000, 1000, 1000}},  {0.17f, {1000, 1000, 1000}},
+        {0.33f, {1000, 1000, 1000}},  {0.50f, {1000, 1000, 1000}},
+        {0.67f, {1000, 1000, 1000}},  {0.83f, {1000, 1000, 1000}},
         {1.00f, {1000, 1000, 1000}} },
 
     // ROSE  crimson-rose → coral → salmon → orchid-pink
