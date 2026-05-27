@@ -3,61 +3,81 @@ name: Release
 on:
   push:
     tags:
-      - 'v*'
+      - 'v[0-9]*.[0-9]*.[0-9]*'
+
+permissions:
+  contents: write
 
 jobs:
-  build-artifacts:
-    name: Build artifact
-    runs-on: ubuntu-latest
+  build-release:
+    name: Build release binary
+    runs-on: ubuntu-22.04   # LTS base for widest glibc compatibility
+
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0    # full history so changelog generation works
+
       - name: Install dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install -y cmake pkg-config libfftw3-dev libncursesw5-dev libpulse-dev libpipewire-0.3-dev ninja-build
-      - name: Build
+          sudo apt-get update -qq
+          sudo apt-get install -y \
+            build-essential cmake pkg-config \
+            libncursesw5-dev \
+            libfftw3-dev \
+            libpulse-dev \
+            libpipewire-0.3-dev \
+            libspa-0.2-dev
+
+      # Strip -march=native so the binary runs on any x86-64 CPU,
+      # not just the exact microarchitecture of the CI runner.
+      - name: Configure
         run: |
-          mkdir -p build && cd build
-          cmake .. -DCMAKE_BUILD_TYPE=Release -GNinja
-          ninja -j$(nproc)
+          cmake -B build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_CXX_FLAGS_RELEASE="-O3 -DNDEBUG" \
+            -DENABLE_PULSEAUDIO=ON \
+            -DENABLE_PIPEWIRE=ON
+
+      - name: Build
+        run: cmake --build build --parallel $(nproc)
+
       - name: Strip binary
         run: strip build/viz
-      - name: Create artifact
-        run: |
-          mkdir -p release
-          cp build/viz release/
-          tar -czf cava-viz-linux-x64.tar.gz -C release viz
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: cava-viz-linux-x64
-          path: cava-viz-linux-x64.tar.gz
-          retention-days: 1
 
-  create-release:
-    needs: build-artifacts
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - name: Download artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: artifacts
-      - name: Prepare release assets
+      - name: Verify binary
         run: |
-          mkdir -p release-assets
-          find artifacts -name "*.tar.gz" -exec mv {} release-assets/ \;
-          ls -la release-assets/
-      - name: Create Release
+          test -f build/viz
+          file build/viz
+          ldd  build/viz
+
+      # Pack binary + helper scripts into a relocatable tarball.
+      # Layout inside the archive mirrors a typical local install:
+      #   cava-viz-vX.Y.Z-linux-x86_64/
+      #     viz
+      #     install.sh
+      #     uninstall.sh
+      #     README  (if present)
+      - name: Package tarball
+        run: |
+          VERSION="${{ github.ref_name }}"
+          PKG="cava-viz-${VERSION}-linux-x86_64"
+          mkdir -p "${PKG}"
+          cp build/viz          "${PKG}/"
+          cp install.sh         "${PKG}/"
+          cp uninstall.sh       "${PKG}/"
+          [ -f README.md ] && cp README.md "${PKG}/" || true
+          tar -czf "${PKG}.tar.gz" "${PKG}"
+          sha256sum "${PKG}.tar.gz" > "${PKG}.tar.gz.sha256"
+          echo "ASSET=${PKG}.tar.gz" >> "$GITHUB_ENV"
+          echo "CHECKSUM=${PKG}.tar.gz.sha256" >> "$GITHUB_ENV"
+
+      - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          draft: false
-          prerelease: ${{ contains(github.ref, 'alpha') || contains(github.ref, 'beta') }}
-          files: release-assets/*
+          name: "cava-viz ${{ github.ref_name }}"
           generate_release_notes: true
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          files: |
+            ${{ env.ASSET }}
+            ${{ env.CHECKSUM }}
