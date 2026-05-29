@@ -39,20 +39,10 @@ At least one audio backend is required.
 
 ```bash
 # Clone
-git clone https://github.com/yourname/cava-viz
+git clone https://github.com/venomseye/cava-viz
 cd cava-viz
-
-# Configure (both backends, release build)
-cmake -B build -DCMAKE_BUILD_TYPE=Release
-
-# Build
-cmake --build build --parallel
-
-# Run directly
-./build/viz
-
-# Or install to ~/.local/bin
-cmake --install build --prefix ~/.local
+chmod +x install.sh uninstall.sh
+./install.sh
 ```
 
 ### Build options
