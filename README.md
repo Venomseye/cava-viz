@@ -51,7 +51,7 @@ At least one audio backend is required.
 Detects your distro, installs dependencies, builds, and installs to `/usr/local/bin/viz`:
 
 ```bash
-git clone https://github.com/yourname/cava-viz
+git clone https://github.com/venomseye/cava-viz
 cd cava-viz
 ./install.sh
 ```
@@ -65,7 +65,7 @@ INSTALL_PREFIX=~/.local ./install.sh
 ### Manual build
 
 ```bash
-git clone https://github.com/yourname/cava-viz
+git clone https://github.com/venomseye/cava-viz
 cd cava-viz
 
 # Configure
