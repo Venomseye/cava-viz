@@ -122,7 +122,6 @@ static void print_usage(const char* p) {
         "  a          Toggle auto-sensitivity\n"
         "  s          Toggle stereo / mono\n"
         "  h          Toggle HUD pin\n"
-        "  o          Toggle outline mode\n"
         "  c          Toggle colour cycle\n"
         "  v          Toggle per-bar colour\n"
         "  w          Toggle A-weighting\n"
@@ -155,7 +154,6 @@ static void applyRendererConfig(Renderer& r, const Config& cfg,
     r.setGapWidth(cfg.gap_width);
     if (!force_auto_width) r.setBarWidth(cfg.bar_width);
     r.setHudPinned(cfg.hud_pinned);
-    r.setOutlineMode(cfg.outline_mode);
     r.setColourCycle(cfg.colour_cycle);
     r.setPerBarColour(cfg.per_bar_colour);
 }
@@ -472,16 +470,7 @@ int main(int argc, char* argv[]) {
                     renderer.showFeedback("Toggle failed");
                 }
                 break;
-            }
-
-            // ── Outline mode ──────────────────────────────────────────────────
-            case 'o':
-                renderer.toggleOutline();
-                cfg.outline_mode = renderer.outlineMode();
-                cfg.save();
-                break;
-
-            // ── Colour cycle ──────────────────────────────────────────────────
+            }            // ── Colour cycle ──────────────────────────────────────────────────
             case 'c':
                 renderer.toggleColourCycle();
                 cfg.colour_cycle = renderer.colourCycle();

@@ -5,7 +5,7 @@
 #include <cstring>
 #include <locale.h>
 
-// Unicode eighth-block characters for sub-cell precision at bar tips.
+// Unicode eighth-block characters ▁–█ for sub-cell bar tips.
 static const char *kBlk[9] = {
     " ",        "\xe2\x96\x81", "\xe2\x96\x82", "\xe2\x96\x83",
     "\xe2\x96\x84", "\xe2\x96\x85", "\xe2\x96\x86", "\xe2\x96\x87",
@@ -23,14 +23,14 @@ struct Stop { float t; RGB c; };
 
 // ── Gradient palette ──────────────────────────────────────────────────────────
 //
-// Each Stop is initialised as  { t, {r, g, b} }  — one brace level per
-// struct member.  Using an extra level  { {t}, {r,g,b} }  compiles with
-// -Wbraced-scalar-init warnings because the scalar float gets a redundant
-// aggregate wrapper; the single-brace form is correct and warning-free.
+// 7 stops per theme.  Initialised as  { t, {r, g, b} }  (no extra braces
+// around the scalar t — avoids -Wbraced-scalar-init warnings).
 //
-// Colour design: every theme follows a clean HSV arc so adjacent terminal
-// rows have a small per-row delta (< 80 ncurses units) — minimising banding.
-// GAMMA = 1.0 (linear palette) gives the most even colour step distribution.
+// Each theme follows a clean HSV arc so adjacent terminal rows have a small
+// per-row Δ (< 80 ncurses units) — the minimum achievable without sub-pixel
+// rendering.  GAMMA = 1.0 (linear palette) distributes the variation evenly
+// across all rows.  smoothstep() inside sampleTheme() makes each stop
+// interval C1-continuous, eliminating slope-kink banding at stop boundaries.
 //
 static const Stop kGrad[static_cast<int>(Theme::COUNT)][7] = {
     // FIRE  vivid-orange → orange-red → red → rose-red → hot-pink
@@ -81,10 +81,10 @@ static const Stop kGrad[static_cast<int>(Theme::COUNT)][7] = {
         {0.67f, { 970, 679,   0}},  {0.83f, {1000, 867,   0}},
         {1.00f, {1000, 1000,   0}} },
 
-    // WHITE  solid bright white — no gradient, matches cava's default solid mode
-    {   {0.00f, {1000, 1000, 1000}},  {0.17f, {1000, 1000, 1000}},
-        {0.33f, {1000, 1000, 1000}},  {0.50f, {1000, 1000, 1000}},
-        {0.67f, {1000, 1000, 1000}},  {0.83f, {1000, 1000, 1000}},
+    // WHITE  solid bright white — no gradient, matches cava's solid-colour mode
+    {   {0.00f, {1000, 1000, 1000}}, {0.17f, {1000, 1000, 1000}},
+        {0.33f, {1000, 1000, 1000}}, {0.50f, {1000, 1000, 1000}},
+        {0.67f, {1000, 1000, 1000}}, {0.83f, {1000, 1000, 1000}},
         {1.00f, {1000, 1000, 1000}} },
 
     // ROSE  crimson-rose → coral → salmon → orchid-pink
@@ -140,10 +140,10 @@ static const short kFall[static_cast<int>(Theme::COUNT)][48] = {
      231, 231, 231, 231, 231, 231, 231, 231, 231, 231, 231, 231, 231, 231,
      231, 231, 231, 231, 231, 231, 231, 231, 231, 231, 231, 231, 231, 231,
      231, 231, 231, 231},           // INFERNO
-    {240, 241, 242, 243, 244, 245, 246, 247, 248, 249, 250, 251, 252, 253,
-     254, 255, 231, 231, 231, 231, 231, 231, 231, 231, 231, 231, 231, 231,
+    {231, 231, 231, 231, 231, 231, 231, 231, 231, 231, 231, 231, 231, 231,
      231, 231, 231, 231, 231, 231, 231, 231, 231, 231, 231, 231, 231, 231,
-     231, 231, 231, 231},           // WHITE
+     231, 231, 231, 231, 231, 231, 231, 231, 231, 231, 231, 231, 231, 231,
+     231, 231, 231, 231, 231, 231}, // WHITE  (solid)
     {161, 162, 168, 204, 210, 211, 217, 218, 224, 225, 231, 231, 231, 231,
      231, 231, 231, 231, 231, 231, 231, 231, 231, 231, 231, 231, 231, 231,
      231, 231, 231, 231, 231, 231, 231, 231, 231, 231, 231, 231, 231, 231,
@@ -167,9 +167,7 @@ static RGB lerpRGB(RGB a, RGB b, float t) noexcept {
     };
 }
 
-// Cubic smoothstep — C1-continuous at stop boundaries.  Eliminates the
-// slope discontinuity (faint visible band) that plain linear lerp leaves
-// wherever two gradient segments meet.
+// Cubic smoothstep — C1-continuous at stop boundaries, eliminates kink-bands.
 static float smoothstep(float t) noexcept {
     return t * t * (3.0f - 2.0f * t);
 }
@@ -210,7 +208,7 @@ static RGB blendRGB(RGB a, RGB b, float t) noexcept {
     };
 }
 
-// ── Truecolor / TERM detection ────────────────────────────────────────────────
+// ── Truecolor detection ───────────────────────────────────────────────────────
 bool Renderer::detectTruecolor() noexcept {
     const char *ct = std::getenv("COLORTERM");
     if (ct && (strcmp(ct, "truecolor") == 0 || strcmp(ct, "24bit") == 0))
@@ -223,37 +221,22 @@ bool Renderer::detectTruecolor() noexcept {
     return false;
 }
 
-// Override TERM to xterm-direct before initscr() when we are running inside
-// a truecolor terminal but TERM is set to something like "xterm-256color"
-// whose terminfo entry lacks the "ccc" (can-change-color) capability.
-//
-// Without this, ncurses returns false from can_change_color() and every
-// init_color() call silently returns ERR.  The colour pairs then keep the
-// default xterm-256 cube values (navy, teal, olive, …) instead of the
-// designed gradient — exactly the "weird colours on Konsole" symptom.
-//
-// xterm-direct is part of the ncurses 6.0+ terminfo database and is present
-// on all modern Debian/Ubuntu/Arch/Fedora systems.  If it were missing,
-// initscr() would fall back to the "ansi" entry and can_change_color() would
-// still be false, so the code falls through to the 256-colour palette as a
-// safe fallback.
+// Override TERM to xterm-direct before initscr() on truecolor terminals whose
+// default TERM=xterm-256color terminfo lacks the "ccc" capability.  Without
+// this, can_change_color() returns false and every init_color() call silently
+// returns ERR, leaving colour pairs at the raw xterm-256 cube values.
 void Renderer::applyTermOverride() noexcept {
-    if (!detectTruecolor())
-        return;
+    if (!detectTruecolor()) return;
     const char *term = std::getenv("TERM");
-    if (!term)
-        return;
-    // Only override if the current entry is likely to lack ccc.
+    if (!term) return;
     if (strstr(term, "256color") || strcmp(term, "xterm") == 0 ||
-        strcmp(term, "screen") == 0) {
+        strcmp(term, "screen") == 0)
         setenv("TERM", "xterm-direct", 1);
-    }
 }
 
 Renderer::Renderer() { last_frame_tp_ = Clock::now(); }
 Renderer::~Renderer() {
-    if (initialized_)
-        endwin();
+    if (initialized_) endwin();
 }
 
 void Renderer::applyNcursesSettings() {
@@ -267,10 +250,7 @@ void Renderer::applyNcursesSettings() {
 bool Renderer::init() {
     setlocale(LC_ALL, "");
     set_escdelay(20);
-
-    // Must be called before initscr() reads the TERM variable.
-    applyTermOverride();
-
+    applyTermOverride(); // must precede initscr()
     initscr();
     applyNcursesSettings();
     if (!has_colors()) {
@@ -279,11 +259,6 @@ bool Renderer::init() {
     }
     start_color();
     use_default_colors();
-
-    // After the TERM override, can_change_color() should be true on all
-    // truecolor terminals.  If xterm-direct was unavailable the override was
-    // a no-op and can_change_color() is still false — we fall back to the
-    // 256-colour palette automatically via the can_rgb_ flag.
     can_rgb_    = (COLORS >= 256) && can_change_color();
     grad_steps_ = GRAD_STEPS_MAX;
     rebuildColors();
@@ -311,13 +286,15 @@ void Renderer::handleResize() {
 
 // ── rebuildColors ─────────────────────────────────────────────────────────────
 //
-// Safe colour index range
-//   COLORS = 256  →  indices 0..255 available.
-//   We start at COLOR_BASE = 16, leaving 240 slots.
-//   Reserve HUD_PAIRS = 4 at the top → 236 usable gradient slots.
+// Colour index safety:
+//   COLORS = 256  →  indices 0..255.  We start at COLOR_BASE = 16 (after the
+//   16 ANSI colours), leaving 240 slots.  Reserving HUD_PAIRS = 4 at the top
+//   gives 236 usable gradient steps.
 //   Constraint:  COLOR_BASE + grad_steps_ + HUD_PAIRS − 1 ≤ COLORS − 1
+//   HUD colours are placed immediately after at +grad_steps_+[0..3].
 //
-// Gradient mapping:  t = pow(raw, 1.0) = raw  (linear, equal step size).
+// GAMMA = 1.0 (linear) gives the most uniform per-row colour step size,
+// minimising worst-case banding.
 //
 void Renderer::rebuildColors() {
     static constexpr float GAMMA = 1.00f;
@@ -344,23 +321,21 @@ void Renderer::rebuildColors() {
     } else if (COLORS >= 256) {
         const short *pal = kFall[ti];
         for (int i = 0; i < grad_steps_; ++i) {
-            const float t = (float)i / std::max(1, grad_steps_ - 1);
+            const float t  = (float)i / std::max(1, grad_steps_ - 1);
             const int   pi = std::clamp((int)(t * 47.f + 0.5f), 0, 47);
             init_pair(i + 1, pal[pi], -1);
         }
     } else {
         for (int i = 0; i < grad_steps_; ++i) {
             const float  f  = (float)i / std::max(1, grad_steps_ - 1);
-            const short fg = f < 0.4f ? COLOR_YELLOW
+            const short fg = f < 0.4f  ? COLOR_YELLOW
                            : f < 0.72f ? COLOR_RED
                            : COLOR_WHITE;
             init_pair(i + 1, fg, -1);
         }
     }
 
-    // HUD accent pairs — placed right after the gradient.
-    // Colour indices  COLOR_BASE + grad_steps_ .. COLOR_BASE + grad_steps_ + 3
-    // Ncurses pairs   grad_steps_ + 1          .. grad_steps_ + 4
+    // HUD accent pairs — right after the gradient.
     static const float kHF[HUD_PAIRS] = {0.55f, 0.72f, 0.88f, 1.00f};
     for (int lv = 0; lv < HUD_PAIRS; ++lv) {
         const short hud_ci = (short)(COLOR_BASE + grad_steps_ + lv);
@@ -369,8 +344,7 @@ void Renderer::rebuildColors() {
             init_color(hud_ci, rgb.r, rgb.g, rgb.b);
             init_pair(grad_steps_ + 1 + lv, hud_ci, -1);
         } else if (COLORS >= 256) {
-            init_pair(grad_steps_ + 1 + lv,
-                      kFall[ti][(int)(kHF[lv] * 47)], -1);
+            init_pair(grad_steps_ + 1 + lv, kFall[ti][(int)(kHF[lv] * 47)], -1);
         } else {
             init_pair(grad_steps_ + 1 + lv,
                       kHF[lv] < 0.75f ? COLOR_YELLOW : COLOR_WHITE, -1);
@@ -419,16 +393,14 @@ void Renderer::showFeedback(const std::string &msg) {
 
 void Renderer::setTheme(Theme t) {
     theme_ = t;
-    if (initialized_)
-        rebuildColors();
+    if (initialized_) rebuildColors();
     invalidatePrev();
     needs_clear_ = true;
 }
 
 Theme Renderer::nextTheme() {
     theme_ = (Theme)(((int)theme_ + 1) % (int)Theme::COUNT);
-    if (initialized_)
-        rebuildColors();
+    if (initialized_) rebuildColors();
     invalidatePrev();
     needs_clear_ = true;
     notifyChange();
@@ -490,7 +462,7 @@ void Renderer::drawBarColumn(int col, int bar_idx, int total_bars,
     const int prev_lh = prev_h / SUB;
 
     int max_line = (std::max(height_sub, prev_h) + SUB) / SUB;
-    max_line = std::min(max_line, avail);
+    max_line     = std::min(max_line, avail);
 
     char lbuf[BAR_W_MAX * 3 + 1];
 
@@ -499,6 +471,7 @@ void Renderer::drawBarColumn(int col, int bar_idx, int total_bars,
         if (row < HUD_ROWS || row >= LINES)
             continue;
 
+        // frac=0 → vivid base colour at bar bottom; frac=1 → tip colour.
         float frac;
         if (per_bar_colour_ && total_bars > 1)
             frac = (float)bar_idx / (float)(total_bars - 1);
@@ -507,26 +480,6 @@ void Renderer::drawBarColumn(int col, int bar_idx, int total_bars,
 
         const int cp   = gradPair(frac);
         const int attr = beat_flash_ ? (COLOR_PAIR(cp) | A_BOLD) : COLOR_PAIR(cp);
-
-        if (outline_mode_) {
-            if (line == cur_lh && height_sub > 0) {
-                int bar_step = height_sub % SUB;
-                if (bar_step == 0)
-                    bar_step = SUB - 1;
-                else
-                    bar_step--;
-                const char *blk = kBlk[std::clamp(bar_step + 1, 1, 8)];
-                for (int w = 0; w < bar_w_; ++w)
-                    memcpy(lbuf + w * 3, blk, 3);
-                lbuf[bar_w_ * 3] = '\0';
-                attron(attr);
-                mvaddstr(row, col, lbuf);
-                attroff(attr);
-            } else if (!force && line <= prev_lh && line != cur_lh) {
-                mvhline(row, col, ' ', bar_w_);
-            }
-            continue;
-        }
 
         if (height_sub >= line * SUB + 1) {
             int bar_step;
@@ -607,26 +560,26 @@ void Renderer::drawStatusBar(double fps, const std::string &backend,
     if (show_fb) {
         std::snprintf(lbuf, sizeof(lbuf), "  %s", feedback_msg_.c_str());
     } else {
-        char flags[16] = {};
-        int fi = 0;
-        if (outline_mode_)   flags[fi++] = 'O';
+        char flags[8] = {};
+        int  fi       = 0;
         if (colour_cycle_)   flags[fi++] = 'C';
         if (per_bar_colour_) flags[fi++] = 'B';
         flags[fi] = '\0';
 
-        char src_buf[80] = {};
+        char src[80] = {};
         if (!source_name_.empty())
-            std::snprintf(src_buf, sizeof(src_buf), "  %.38s", source_name_.c_str());
+            std::snprintf(src, sizeof(src), "  %.38s", source_name_.c_str());
 
-        std::snprintf(lbuf, sizeof(lbuf), " %s  %s  W:%d G:%d  Sens:%.1f%s%s%s",
+        std::snprintf(lbuf, sizeof(lbuf),
+                      " %s  %s  W:%d G:%d  Sens:%.1f%s%s%s",
                       backend.empty() ? "?" : backend.c_str(),
                       themeName().c_str(), bar_w_, gap_w_, (double)sens,
                       auto_sens   ? " A"   : "",
                       hud_pinned_ ? " PIN" : "",
                       fi > 0 ? (std::string(" [") + flags + "]").c_str() : "");
 
-        if (src_buf[0])
-            std::strncat(lbuf, src_buf, sizeof(lbuf) - strlen(lbuf) - 1);
+        if (src[0])
+            std::strncat(lbuf, src, sizeof(lbuf) - strlen(lbuf) - 1);
     }
 
     char rbuf[20];
@@ -679,8 +632,7 @@ void Renderer::render(const std::vector<float> &bars_l,
     {
         const int nb = (int)bars_l.size(), lim = std::min(nb, 4);
         float lfe = 0.f;
-        for (int i = 0; i < lim; ++i)
-            lfe += bars_l[i];
+        for (int i = 0; i < lim; ++i) lfe += bars_l[i];
         const bool beat_now = (lim > 0) && (lfe / lim >= BEAT_THRESHOLD);
         if (beat_now != beat_flash_) {
             do_clear = true;
