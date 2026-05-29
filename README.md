@@ -53,6 +53,7 @@ Detects your distro, installs dependencies, builds, and installs to `/usr/local/
 ```bash
 git clone https://github.com/venomseye/cava-viz
 cd cava-viz
+chmod +x install.sh uninstall.sh
 ./install.sh
 ```
 
