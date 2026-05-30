@@ -5,6 +5,7 @@
 #include <cstring>
 
 #include <spa/param/audio/format.h>
+#include <spa/param/audio/format-utils.h>
 #include <pipewire/keys.h>
 
 PipeWireCapture::PipeWireCapture() { pw_init(nullptr, nullptr); }
@@ -56,8 +57,12 @@ bool PipeWireCapture::start(AudioCallback cb) {
         pw_properties_set(props, "stream.capture.sink", "true");
     }
 
-    // Request low latency so capture chunks are small and responsive
-    pw_properties_set(props, PW_KEY_NODE_LATENCY, "512/44100");
+    // Request low latency so capture chunks are small and responsive.
+    // Use the negotiated sample rate in the denominator — hardcoding 44100
+    // here produced a wrong latency hint when -r specified a different rate.
+    char lat_buf[32];
+    std::snprintf(lat_buf, sizeof(lat_buf), "512/%d", sample_rate_);
+    pw_properties_set(props, PW_KEY_NODE_LATENCY, lat_buf);
 
     stream_ = pw_stream_new(core_, "cava-viz-capture", props);
     if (!stream_) {
@@ -161,7 +166,24 @@ void PipeWireCapture::onProcess(void* ud) {
 
 void PipeWireCapture::onParamChanged(void* ud, uint32_t id,
                                       const struct spa_pod* param) {
-    (void)ud; (void)id; (void)param;
+    // Verify the format PipeWire actually negotiated matches what we asked for.
+    // A mismatch (e.g. different sample rate or channel count) means addSamples
+    // will receive data at the wrong layout and audio will be distorted.
+    auto* self = static_cast<PipeWireCapture*>(ud);
+    if (!param || id != SPA_PARAM_Format) return;
+
+    struct spa_audio_info_raw info{};
+    if (spa_format_audio_raw_parse(param, &info) < 0) return;
+
+    const int got_rate = (int)info.rate;
+    const int got_ch   = (int)info.channels;
+    if (got_rate != self->sample_rate_ || got_ch != self->channels_) {
+        std::fprintf(stderr,
+            "cava-viz: PipeWire format mismatch — "
+            "negotiated rate=%d ch=%d, requested rate=%d ch=%d. "
+            "Audio may be distorted.\n",
+            got_rate, got_ch, self->sample_rate_, self->channels_);
+    }
 }
 
 void PipeWireCapture::onStreamState(void* ud,

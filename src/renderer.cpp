@@ -200,14 +200,6 @@ static RGB hsvToRgb(float h, float s, float v) noexcept {
     return {(short)(r * 1000), (short)(g * 1000), (short)(b * 1000)};
 }
 
-static RGB blendRGB(RGB a, RGB b, float t) noexcept {
-    return {
-        (short)(a.r + (b.r - a.r) * t),
-        (short)(a.g + (b.g - a.g) * t),
-        (short)(a.b + (b.b - a.b) * t),
-    };
-}
-
 // ── Truecolor detection ───────────────────────────────────────────────────────
 bool Renderer::detectTruecolor() noexcept {
     const char *ct = std::getenv("COLORTERM");
@@ -312,7 +304,7 @@ void Renderer::rebuildColors() {
             RGB rgb = sampleTheme(ti, t);
             if (hue_a > 0.f) {
                 RGB hue = hsvToRgb(hue_offset_ + raw * 60.f, 0.82f, 0.92f);
-                rgb     = blendRGB(rgb, hue, hue_a);
+                rgb = lerpRGB(rgb, hue, hue_a);
             }
             const short ci = (short)(COLOR_BASE + i);
             init_color(ci, rgb.r, rgb.g, rgb.b);
@@ -612,7 +604,13 @@ void Renderer::render(const std::vector<float> &bars_l,
         const float dt =
             std::chrono::duration<float>(now_tp - last_frame_tp_).count();
         hue_offset_ = std::fmod(hue_offset_ + HUE_DEG_PER_SEC * dt, 360.f);
-        rebuildColors();
+        // Rebuild color pairs only when the hue has shifted by at least 1°.
+        // At 30 °/s this fires ~30×/s instead of once per frame (~60×/s),
+        // cutting the ncurses init_color/init_pair call count roughly in half.
+        if (std::abs(hue_offset_ - last_rebuild_hue_) >= 1.0f) {
+            last_rebuild_hue_ = hue_offset_;
+            rebuildColors();
+        }
     }
     last_frame_tp_ = now_tp;
 

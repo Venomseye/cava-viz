@@ -8,6 +8,12 @@ INSTALL_PREFIX="${INSTALL_PREFIX:-/usr/local}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BUILD_DIR="$SCRIPT_DIR/build"
 
+# ── Flags ─────────────────────────────────────────────────────────────────────
+CLEAN=0
+for arg in "$@"; do
+    [[ "$arg" == "--clean" || "$arg" == "-c" ]] && CLEAN=1
+done
+
 # ── Colors ────────────────────────────────────────────────────────────────────
 C_RED='\033[0;31m'; C_GRN='\033[0;32m'; C_YLW='\033[1;33m'
 C_CYN='\033[0;36m'; C_BLD='\033[1m'; C_RST='\033[0m'
@@ -104,17 +110,31 @@ ok "All required dependencies found."
 
 # ── Configure ─────────────────────────────────────────────────────────────────
 header "Configuring..."
-rm -rf "$BUILD_DIR"
+
+if [ "$CLEAN" -eq 1 ]; then
+    info "Cleaning build directory (--clean)..."
+    rm -rf "$BUILD_DIR"
+fi
 
 CMAKE_GENERATOR="Unix Makefiles"
 command -v ninja &>/dev/null && CMAKE_GENERATOR="Ninja"
 
-cmake -B "$BUILD_DIR" -S "$SCRIPT_DIR" \
-    -G "$CMAKE_GENERATOR" \
-    -DCMAKE_BUILD_TYPE=Release \
-    -DCMAKE_INSTALL_PREFIX="$INSTALL_PREFIX" \
-    -Wno-dev \
-    2>&1 | grep -E "ENABLED|DISABLED|ERROR|error:" || true
+CMAKE_LOG="$BUILD_DIR/cmake_configure.log"
+mkdir -p "$BUILD_DIR"
+
+# Run cmake and tee output: show the backend ENABLED/DISABLED summary live,
+# but keep the full log so errors are always readable on failure.
+if ! cmake -B "$BUILD_DIR" -S "$SCRIPT_DIR" \
+        -G "$CMAKE_GENERATOR" \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_INSTALL_PREFIX="$INSTALL_PREFIX" \
+        -Wno-dev \
+        2>&1 | tee "$CMAKE_LOG" | grep -E "ENABLED|DISABLED|Warning|warning"; then
+    echo ""
+    warn "CMake configure failed. Full log:"
+    cat "$CMAKE_LOG"
+    die "Configure step failed — see log above."
+fi
 ok "Configured (generator: $CMAKE_GENERATOR)"
 
 # ── Build ─────────────────────────────────────────────────────────────────────
@@ -144,7 +164,7 @@ echo "  Keybindings:"
 echo "    t      = cycle theme        ] / [  = bar width"
 echo "    g      = cycle gap          ↑ / ↓  = sensitivity"
 echo "    a      = toggle auto-sens   s      = toggle stereo/mono"
-echo "    h      = toggle HUD pin     o      = outline mode"
+echo "    h      = toggle HUD pin"
 echo "    c      = colour cycle       v      = per-bar colour"
 echo "    w      = A-weighting        n      = auto-mono"
 echo "    q      = quit"

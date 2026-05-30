@@ -24,6 +24,11 @@ pkg_check_modules(NCURSES REQUIRED ncursesw)
 option(ENABLE_PULSEAUDIO "Enable PulseAudio backend" ON)
 option(ENABLE_PIPEWIRE   "Enable PipeWire backend"   ON)
 
+# Pre-initialise so the sanity-check below is correct even when a backend is
+# explicitly disabled via -DENABLE_PULSEAUDIO=OFF / -DENABLE_PIPEWIRE=OFF.
+set(PULSEAUDIO_FOUND FALSE)
+set(PIPEWIRE_FOUND   FALSE)
+
 # ── Core sources (always compiled) ────────────────────────────────────────────
 set(CORE_SOURCES
     src/main.cpp
@@ -33,6 +38,13 @@ set(CORE_SOURCES
 )
 
 add_executable(viz ${CORE_SOURCES})
+
+# Make the CMake project version available at compile time.
+# main.cpp guards against the macro being absent with a fallback definition,
+# so builds without CMake (e.g. a hand-written Makefile) still compile cleanly.
+target_compile_definitions(viz PRIVATE
+    CAVA_VIZ_VERSION="${PROJECT_VERSION}"
+)
 
 target_include_directories(viz PRIVATE
     ${CMAKE_SOURCE_DIR}/src

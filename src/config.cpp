@@ -3,6 +3,8 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <string>
+#include <vector>
 #include <sys/stat.h>
 
 static std::string xdgBase(const char *var, const char *suffix) {
@@ -24,9 +26,9 @@ std::string Config::statePath() {
     return xdgBase("XDG_STATE_HOME", "/.local/state") + "/cava-viz/state";
 }
 
-static bool parseKV(const char *line, char key[64], char val[256]) {
+static bool parseKV(const char *line, char key[64], char val[1024]) {
     if (line[0] == '#' || line[0] == '\n' || line[0] == '\r') return false;
-    if (std::sscanf(line, " %63[^=] = %255[^\n]", key, val) != 2) return false;
+    if (std::sscanf(line, " %63[^=] = %1023[^\n]", key, val) != 2) return false;
     for (int i = (int)strlen(key) - 1; i >= 0 && key[i] == ' '; --i) key[i] = '\0';
     for (int i = (int)strlen(val) - 1;
          i >= 0 && (val[i] == ' ' || val[i] == '\r'); --i)
@@ -40,7 +42,7 @@ static bool asBool(const char *v) {
 bool Config::load() {
     FILE *f = std::fopen(configPath().c_str(), "r");
     if (!f) return false;
-    char line[512], k[64], v[256];
+    char line[1536], k[64], v[1024];
     while (std::fgets(line, sizeof(line), f)) {
         if (!parseKV(line, k, v)) continue;
         // Visual
@@ -96,6 +98,83 @@ bool Config::load() {
 void Config::save() const {
     const std::string p = configPath();
     mkdirFor(p);
+
+    // ── Key→value table (insertion order preserved for append path) ───────────
+    using KV = std::pair<std::string, std::string>;
+
+    auto fmtf = [](float v, int prec) -> std::string {
+        char buf[32];
+        std::snprintf(buf, sizeof(buf), prec == 3 ? "%.3f" : "%.2f", (double)v);
+        return buf;
+    };
+
+    const std::vector<KV> kvs = {
+        {"theme",          std::to_string(theme)},
+        {"bar_width",      std::to_string(bar_width)},
+        {"gap_width",      std::to_string(gap_width)},
+        {"hud_pinned",     hud_pinned      ? "1" : "0"},
+        {"colour_cycle",   colour_cycle    ? "1" : "0"},
+        {"per_bar_colour", per_bar_colour  ? "1" : "0"},
+        {"stereo",         stereo          ? "1" : "0"},
+        {"high_cutoff",    std::to_string(high_cutoff)},
+        {"gravity",        fmtf(gravity,     2)},
+        {"monstercat",     fmtf(monstercat,  2)},
+        {"rise_factor",    fmtf(rise_factor, 2)},
+        {"bass_smooth",    fmtf(bass_smooth, 2)},
+        {"a_weighting",    a_weighting     ? "1" : "0"},
+        {"noise_gate",     fmtf(noise_gate,  3)},
+        {"auto_mono",      auto_mono       ? "1" : "0"},
+        {"sensitivity",    fmtf(sensitivity, 2)},
+        {"auto_sens",      auto_sens       ? "1" : "0"},
+        {"fps",            std::to_string(fps)},
+    };
+
+    // ── Try to read existing file ─────────────────────────────────────────────
+    std::vector<std::string> lines;
+    {
+        FILE *rf = std::fopen(p.c_str(), "r");
+        if (rf) {
+            char buf[1536];
+            while (std::fgets(buf, sizeof(buf), rf))
+                lines.push_back(buf);
+            std::fclose(rf);
+        }
+    }
+
+    if (!lines.empty()) {
+        // ── Read-modify-write: update known keys in-place ─────────────────────
+        // Unknown lines (comments, blank lines, user additions) are kept as-is.
+        // Inline comments on a key=value line are lost when the value changes —
+        // a small, acceptable trade-off for correctness.
+        std::vector<bool> written(kvs.size(), false);
+
+        for (auto& line : lines) {
+            char k[64], vbuf[1024];
+            if (!parseKV(line.c_str(), k, vbuf)) continue;
+            for (std::size_t i = 0; i < kvs.size(); ++i) {
+                if (kvs[i].first == k) {
+                    line       = kvs[i].first + " = " + kvs[i].second + "\n";
+                    written[i] = true;
+                    break;
+                }
+            }
+        }
+
+        // Append keys that were not present in the existing file
+        for (std::size_t i = 0; i < kvs.size(); ++i) {
+            if (!written[i])
+                lines.push_back(kvs[i].first + " = " + kvs[i].second + "\n");
+        }
+
+        FILE *wf = std::fopen(p.c_str(), "w");
+        if (!wf) return;
+        for (const auto& l : lines)
+            std::fwrite(l.data(), 1, l.size(), wf);
+        std::fclose(wf);
+        return;
+    }
+
+    // ── First-time write: emit the full annotated template ────────────────────
     FILE *f = std::fopen(p.c_str(), "w");
     if (!f) return;
 
@@ -151,7 +230,7 @@ void Config::save() const {
 bool Config::loadState() {
     FILE *f = std::fopen(statePath().c_str(), "r");
     if (!f) return false;
-    char line[512], k[64], v[256];
+    char line[1536], k[64], v[1024];
     while (std::fgets(line, sizeof(line), f)) {
         if (!parseKV(line, k, v)) continue;
         if (!strcmp(k, "last_source")) last_source = v;

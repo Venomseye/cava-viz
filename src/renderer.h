@@ -93,10 +93,14 @@ public:
 
     // ── Colour cycle ──────────────────────────────────────────────────────────
     void toggleColourCycle() {
-        colour_cycle_ = !colour_cycle_;
+        colour_cycle_     = !colour_cycle_;
+        last_rebuild_hue_ = -360.0f;  // force immediate rebuild on next frame
         showFeedback(colour_cycle_ ? "Colour Cycle On" : "Colour Cycle Off");
     }
-    void setColourCycle(bool v) { colour_cycle_ = v; }
+    void setColourCycle(bool v) {
+        if (v != colour_cycle_) last_rebuild_hue_ = -360.0f;
+        colour_cycle_ = v;
+    }
     bool colourCycle()    const { return colour_cycle_; }
 
     // ── Per-bar colour ────────────────────────────────────────────────────────
@@ -141,9 +145,12 @@ private:
     int              grad_steps_      {GRAD_STEPS_MAX};
     int              prev_grad_avail_ {0};
 
-    bool  colour_cycle_   {false};
-    bool  per_bar_colour_ {false};
-    float hue_offset_     {0.0f};
+    bool  colour_cycle_      {false};
+    bool  per_bar_colour_    {false};
+    float hue_offset_        {0.0f};
+    // Tracks hue at last rebuildColors() call during colour cycling.
+    // Initialised to -360 so the very first cycle frame always rebuilds.
+    float last_rebuild_hue_  {-360.0f};
     TP    last_frame_tp_;
     int   last_bar_count_ {0};
 

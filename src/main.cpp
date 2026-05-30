@@ -3,6 +3,12 @@
 #include "fft_processor.h"
 #include "renderer.h"
 
+// Defined by CMakeLists.txt via target_compile_definitions; fall back to
+// "unknown" when the binary is built without CMake (e.g. a plain Makefile).
+#ifndef CAVA_VIZ_VERSION
+#  define CAVA_VIZ_VERSION "unknown"
+#endif
+
 #ifdef HAVE_PULSEAUDIO
 #  include "pulse_capture.h"
 #endif
@@ -112,6 +118,7 @@ static void print_usage(const char* p) {
         "  -t <0-11>                  Theme index\n"
         "  -f <n>                     Target FPS (default: 60)\n"
         "  -w                         Auto bar width\n"
+        "  -V                         Show version and exit\n"
         "  -h                         Show help\n\n"
         "Keys:\n"
         "  q          Quit\n"
@@ -158,6 +165,58 @@ static void applyRendererConfig(Renderer& r, const Config& cfg,
     r.setPerBarColour(cfg.per_bar_colour);
 }
 
+// ── Audio start helper ────────────────────────────────────────────────────────
+// Extracted from a [&] capture lambda so ownership and parameters are explicit.
+// FFTProcessor is passed directly; the callback is created internally so there
+// is no need for a make_cb factory in main().
+static void doStartAudio(
+    const std::string& backend, const std::string& cli_source,
+    bool use_mic, int sample_rate, int channels,
+    FFTProcessor& fft, Config& cfg,
+    std::unique_ptr<AudioCapture>& audio,
+    std::string& active_source, std::string& bname)
+{
+    AudioCapture::AudioCallback cb =
+        [&fft](const std::vector<float>& s, int ch) {
+            fft.addSamples(s, ch);
+        };
+
+    if (!cli_source.empty()) {
+        active_source = cli_source;
+        audio = makeAudio(backend, active_source, sample_rate, channels, cb);
+    } else if (use_mic) {
+        active_source = "";
+        audio = makeAudio(backend, active_source, sample_rate, channels, cb);
+        if (!audio) {
+            active_source = "default";
+            audio = makeAudio(backend, active_source, sample_rate, channels, cb);
+        }
+    } else {
+        active_source = "";
+        audio = makeAudio(backend, active_source, sample_rate, channels, cb);
+        if (!audio && !cfg.last_source.empty()) {
+            active_source = cfg.last_source;
+            audio = makeAudio(backend, active_source, sample_rate, channels, cb);
+        }
+        if (!audio) {
+            active_source = detectMonitor();
+            if (!active_source.empty())
+                audio = makeAudio(backend, active_source, sample_rate, channels, cb);
+        }
+        if (!audio) {
+            active_source = "";
+            audio = makeAudio(backend, active_source, sample_rate, channels, cb);
+        }
+    }
+    if (audio) {
+        bname = audio->backendName();
+        if (!active_source.empty() && !use_mic) {
+            cfg.last_source = active_source;
+            cfg.saveState();
+        }
+    }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 int main(int argc, char* argv[]) {
     struct sigaction sa{};
@@ -192,11 +251,12 @@ int main(int argc, char* argv[]) {
         {"theme",     required_argument, nullptr, 't'},
         {"fps",       required_argument, nullptr, 'f'},
         {"autowidth", no_argument,       nullptr, 'w'},
+        {"version",   no_argument,       nullptr, 'V'},
         {"help",      no_argument,       nullptr, 'h'},
         {nullptr,     0,                 nullptr,  0 }
     };
     int o;
-    while ((o = getopt_long(argc, argv, "b:s:Mr:t:f:wh", long_opts, nullptr)) != -1) {
+    while ((o = getopt_long(argc, argv, "b:s:Mr:t:f:wVh", long_opts, nullptr)) != -1) {
         switch (o) {
             case 'b': backend          = optarg;                              break;
             case 's': cli_source       = optarg;                              break;
@@ -206,6 +266,7 @@ int main(int argc, char* argv[]) {
                         if (ti>=0&&ti<(int)Theme::COUNT) cfg.theme=ti; }     break;
             case 'f': cfg.fps          = std::max(1, std::stoi(optarg));      break;
             case 'w': force_auto_width = true;                                break;
+            case 'V': printf("cava-viz %s\n", CAVA_VIZ_VERSION); return 0;
             case 'h': print_usage(argv[0]); return 0;
             default:  print_usage(argv[0]); return 1;
         }
@@ -218,50 +279,15 @@ int main(int argc, char* argv[]) {
     FFTProcessor fft(sample_rate, channels);
     applyFFTConfig(fft, cfg);
 
-    auto make_cb = [&]() -> AudioCapture::AudioCallback {
-        return [&](const std::vector<float>& s, int ch) { fft.addSamples(s, ch); };
-    };
-
     // ── Audio source ──────────────────────────────────────────────────────────
     std::string active_source;
     std::string bname;
     std::unique_ptr<AudioCapture> audio;
 
+    // Thin wrapper so call sites don't repeat the full parameter list.
     auto startAudio = [&]() {
-        if (!cli_source.empty()) {
-            active_source = cli_source;
-            audio = makeAudio(backend, active_source, sample_rate, channels, make_cb());
-        } else if (use_mic) {
-            active_source = "";
-            audio = makeAudio(backend, active_source, sample_rate, channels, make_cb());
-            if (!audio) {
-                active_source = "default";
-                audio = makeAudio(backend, active_source, sample_rate, channels, make_cb());
-            }
-        } else {
-            active_source = "";
-            audio = makeAudio(backend, active_source, sample_rate, channels, make_cb());
-            if (!audio && !cfg.last_source.empty()) {
-                active_source = cfg.last_source;
-                audio = makeAudio(backend, active_source, sample_rate, channels, make_cb());
-            }
-            if (!audio) {
-                active_source = detectMonitor();
-                if (!active_source.empty())
-                    audio = makeAudio(backend, active_source, sample_rate, channels, make_cb());
-            }
-            if (!audio) {
-                active_source = "";
-                audio = makeAudio(backend, active_source, sample_rate, channels, make_cb());
-            }
-        }
-        if (audio) {
-            bname = audio->backendName();
-            if (!active_source.empty() && !use_mic) {
-                cfg.last_source = active_source;
-                cfg.saveState();
-            }
-        }
+        doStartAudio(backend, cli_source, use_mic, sample_rate, channels,
+                     fft, cfg, audio, active_source, bname);
     };
 
     startAudio();
@@ -347,10 +373,26 @@ int main(int argc, char* argv[]) {
                         Config nc;
                         nc.last_source = cfg.last_source;
                         if (nc.load()) {
+                            const bool stereo_changed = (nc.stereo != cfg.stereo);
                             cfg = nc;
                             applyRendererConfig(renderer, cfg, force_auto_width);
                             applyFFTConfig(fft, cfg);
                             renderer.notifyChange();
+                            // stereo is an audio-thread property — a change
+                            // requires stopping and restarting the capture.
+                            if (stereo_changed) {
+                                if (audio) { audio->stop(); audio.reset(); }
+                                channels = cfg.stereo ? 2 : 1;
+                                fft.reinit(channels);
+                                applyFFTConfig(fft, cfg);
+                                silent_frames = 0;
+                                startAudio();
+                                if (audio) {
+                                    renderer.setSourceName(active_source);
+                                    renderer.showFeedback(
+                                        cfg.stereo ? "Stereo" : "Mono");
+                                }
+                            }
                         }
                         break;
                     }
@@ -374,8 +416,12 @@ int main(int argc, char* argv[]) {
                 silent_frames = 0;
                 if (audio) { audio->stop(); audio.reset(); }
                 const std::string mon = detectMonitor();
+                AudioCapture::AudioCallback cb =
+                    [&fft](const std::vector<float>& s, int ch) {
+                        fft.addSamples(s, ch);
+                    };
                 for (const std::string& src : {std::string(""), mon, active_source}) {
-                    audio = makeAudio(backend, src, sample_rate, channels, make_cb());
+                    audio = makeAudio(backend, src, sample_rate, channels, cb);
                     if (audio) {
                         bname = audio->backendName();
                         if (!src.empty()) {
@@ -395,7 +441,7 @@ int main(int argc, char* argv[]) {
         // kernel rather than polling repeatedly — reduces CPU wakeups.
         wtimeout(stdscr, 1000 / target_fps);
         const int ch = getch();
-        if (ch == ERR) goto next_frame;
+        if (ch != ERR) {
 
         switch (ch) {
 
@@ -507,7 +553,7 @@ int main(int argc, char* argv[]) {
             default: break;
         }
 
-        next_frame:;
+        } // if (ch != ERR)
 
         // ── Compute + render ──────────────────────────────────────────────────
         fft.execute(renderer.barCount(), (float)fps);
