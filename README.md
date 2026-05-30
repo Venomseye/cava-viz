@@ -298,5 +298,4 @@ Use `./uninstall.sh` to remove the binary and optionally clean up these files.
 ---
 
 ## License
-
-MIT
+https://github.com/venomseye/cava-viz/LICENSE
