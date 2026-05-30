@@ -2,6 +2,7 @@
 #include "config.h"
 #include "fft_processor.h"
 #include "renderer.h"
+#include "user_theme.h"
 
 // Defined by CMakeLists.txt via target_compile_definitions; fall back to
 // "unknown" when the binary is built without CMake (e.g. a plain Makefile).
@@ -157,7 +158,7 @@ static void applyFFTConfig(FFTProcessor& fft, const Config& cfg) {
 // ── Apply rendering config ────────────────────────────────────────────────────
 static void applyRendererConfig(Renderer& r, const Config& cfg,
                                 bool force_auto_width) {
-    r.setTheme(static_cast<Theme>(cfg.theme));
+    r.setThemeIdx(cfg.theme);   // handles both built-in and user theme indices
     r.setGapWidth(cfg.gap_width);
     if (!force_auto_width) r.setBarWidth(cfg.bar_width);
     r.setHudPinned(cfg.hud_pinned);
@@ -306,24 +307,38 @@ int main(int argc, char* argv[]) {
     // ── Renderer ──────────────────────────────────────────────────────────────
     Renderer renderer;
     if (!renderer.init()) { audio->stop(); return 1; }
+    // Load user themes before applyRendererConfig so cfg.theme (which may be
+    // a user theme index >= Theme::COUNT) validates and clamps correctly.
+    renderer.setUserThemes(loadUserThemes());
     applyRendererConfig(renderer, cfg, force_auto_width);
     if (force_auto_width) renderer.setBarWidth(renderer.autoBarWidth());
     renderer.setSourceName(active_source);
     renderer.notifyChange();
 
     // ── inotify ───────────────────────────────────────────────────────────────
-    const std::string cfg_path = Config::configPath();
-    const std::string cfg_dir  = cfg_path.substr(0, cfg_path.rfind('/'));
-    const std::string cfg_file = cfg_path.substr(cfg_path.rfind('/') + 1);
+    const std::string cfg_path    = Config::configPath();
+    const std::string cfg_dir     = cfg_path.substr(0, cfg_path.rfind('/'));
+    const std::string cfg_file    = cfg_path.substr(cfg_path.rfind('/') + 1);
+    const std::string themes_path = themesDir();
     int inotify_fd = -1;
+    int wd_cfg     = -1;
+    int wd_themes  = -1;
 #ifdef __linux__
     mkdir(cfg_dir.c_str(), 0755);
+    mkdir(themes_path.c_str(), 0755);   // create themes/ if it doesn't exist
     inotify_fd = inotify_init1(IN_NONBLOCK);
     if (inotify_fd >= 0) {
-        if (inotify_add_watch(inotify_fd, cfg_dir.c_str(),
-                              IN_CLOSE_WRITE|IN_MOVED_TO) < 0) {
-            close(inotify_fd); inotify_fd = -1;
-        }
+        wd_cfg = inotify_add_watch(inotify_fd, cfg_dir.c_str(),
+                                   IN_CLOSE_WRITE|IN_MOVED_TO);
+        if (wd_cfg < 0) { close(inotify_fd); inotify_fd = -1; }
+        // Watch themes/ dir too — adding, editing, or removing a .theme file
+        // triggers an immediate reload without restarting the visualizer.
+        // IN_DELETE covers rm; IN_CLOSE_WRITE covers saves; IN_MOVED_TO covers
+        // atomic-rename saves (how most editors write files).
+        if (inotify_fd >= 0)
+            wd_themes = inotify_add_watch(inotify_fd, themes_path.c_str(),
+                                          IN_CLOSE_WRITE|IN_MOVED_TO|IN_DELETE);
+        // A missing or unreadable themes/ dir is non-fatal; wd_themes stays -1.
     }
 #endif
 
@@ -369,7 +384,9 @@ int main(int argc, char* argv[]) {
             while ((ilen = read(inotify_fd, ibuf, sizeof(ibuf))) > 0) {
                 for (const char* p = ibuf; p < ibuf + ilen; ) {
                     const auto* ev = reinterpret_cast<const struct inotify_event*>(p);
-                    if (ev->len > 0 && cfg_file == ev->name) {
+
+                    if (ev->wd == wd_cfg && ev->len > 0 && cfg_file == ev->name) {
+                        // ── Config file changed ───────────────────────────────
                         Config nc;
                         nc.last_source = cfg.last_source;
                         if (nc.load()) {
@@ -378,8 +395,6 @@ int main(int argc, char* argv[]) {
                             applyRendererConfig(renderer, cfg, force_auto_width);
                             applyFFTConfig(fft, cfg);
                             renderer.notifyChange();
-                            // stereo is an audio-thread property — a change
-                            // requires stopping and restarting the capture.
                             if (stereo_changed) {
                                 if (audio) { audio->stop(); audio.reset(); }
                                 channels = cfg.stereo ? 2 : 1;
@@ -395,7 +410,20 @@ int main(int argc, char* argv[]) {
                             }
                         }
                         break;
+
+                    } else if (ev->wd == wd_themes) {
+                        // ── A .theme file was added, edited, or removed ───────
+                        // Only react to .theme files; ignore other files (e.g.
+                        // editor swap files like ocean.theme~).
+                        const bool is_theme = (ev->len > 6) &&
+                            std::string(ev->name).rfind(".theme") ==
+                                std::string(ev->name).size() - 6;
+                        if (is_theme) {
+                            renderer.setUserThemes(loadUserThemes());
+                            renderer.showFeedback("Themes reloaded");
+                        }
                     }
+
                     p += sizeof(struct inotify_event) + ev->len;
                 }
             }
@@ -448,7 +476,7 @@ int main(int argc, char* argv[]) {
             case 'q': g_running.store(false); break;
 
             case 't':
-                cfg.theme = (int)renderer.nextTheme();
+                cfg.theme = renderer.nextTheme();  // int: 0..COUNT-1+user themes
                 cfg.save();
                 break;
 

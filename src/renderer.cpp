@@ -1,4 +1,5 @@
 #include "renderer.h"
+#include "user_theme.h"
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
@@ -183,6 +184,57 @@ static RGB sampleTheme(int ti, float t) noexcept {
     return s[6].c;
 }
 
+// Sample a user-defined gradient at position t ∈ [0, 1].
+// Uses the same C1-continuous smoothstep as sampleTheme().
+static RGB sampleUserTheme(const UserTheme& ut, float t) noexcept {
+    const auto& s = ut.stops;
+    if (s.empty()) return {1000, 1000, 1000};
+    if (t <= s.front().pos) return {s.front().r, s.front().g, s.front().b};
+    if (t >= s.back().pos)  return {s.back().r,  s.back().g,  s.back().b};
+    for (std::size_t i = 1; i < s.size(); ++i) {
+        if (t <= s[i].pos) {
+            const float span = s[i].pos - s[i - 1].pos;
+            const float lt   = (span > 0.f) ? (t - s[i - 1].pos) / span : 0.f;
+            const RGB a = {s[i-1].r, s[i-1].g, s[i-1].b};
+            const RGB b = {s[i].r,   s[i].g,   s[i].b};
+            return lerpRGB(a, b, smoothstep(std::clamp(lt, 0.f, 1.f)));
+        }
+    }
+    return {s.back().r, s.back().g, s.back().b};
+}
+
+// Map an ncurses-scale RGB (0–1000) to the nearest xterm-256 colour index.
+// Used for the 256-colour fallback path for user themes (built-ins use kFall[]).
+static short nearestXterm256(short r1k, short g1k, short b1k) noexcept {
+    // Convert to 0–255 byte scale.
+    const int r = (int)(r1k * 255 / 1000);
+    const int g = (int)(g1k * 255 / 1000);
+    const int b = (int)(b1k * 255 / 1000);
+
+    // The 6×6×6 colour cube: levels 0, 95, 135, 175, 215, 255.
+    static const int kLev[6] = {0, 95, 135, 175, 215, 255};
+    auto nearest = [](int v) -> int {
+        int bi = 0, bd = 1 << 30;
+        for (int i = 0; i < 6; ++i) {
+            const int d = (v - kLev[i]) * (v - kLev[i]);
+            if (d < bd) { bd = d; bi = i; }
+        }
+        return bi;
+    };
+    const int ri = nearest(r), gi = nearest(g), bi = nearest(b);
+    const short cube = (short)(16 + 36 * ri + 6 * gi + bi);
+
+    // Also check the 24 xterm grayscale shades (indices 232–255, values 8–238).
+    const int gray     = (r + g + b) / 3;
+    const int gi2      = std::clamp((gray - 8) / 10, 0, 23);
+    const int gray_v   = 8 + gi2 * 10;
+    const short graysq = (short)(232 + gi2);
+
+    const int dist_cube = (r-kLev[ri])*(r-kLev[ri]) + (g-kLev[gi])*(g-kLev[gi]) + (b-kLev[bi])*(b-kLev[bi]);
+    const int dist_gray = (r-gray_v)*(r-gray_v) + (g-gray_v)*(g-gray_v) + (b-gray_v)*(b-gray_v);
+    return dist_cube <= dist_gray ? cube : graysq;
+}
+
 static RGB hsvToRgb(float h, float s, float v) noexcept {
     const float hh = std::fmod(h, 360.f) / 60.f;
     const int   i  = (int)hh;
@@ -294,14 +346,25 @@ void Renderer::rebuildColors() {
     const int max_safe = std::max(4, COLORS - (int)COLOR_BASE - HUD_PAIRS);
     grad_steps_ = std::min(GRAD_STEPS_MAX, max_safe);
 
-    const int   ti    = (int)theme_;
+    // Determine whether we're rendering a built-in or a user theme.
+    const bool is_user  = (theme_abs_ >= (int)Theme::COUNT);
+    const int  user_idx = theme_abs_ - (int)Theme::COUNT;
+    const int  bi       = is_user ? 0 : theme_abs_;  // built-in index (only valid when !is_user)
+    const bool has_user = is_user && (user_idx < (int)user_themes_.size());
+
     const float hue_a = colour_cycle_ ? 0.38f : 0.0f;
+
+    // Helper: sample either gradient at position t.
+    auto sample = [&](float t) -> RGB {
+        if (has_user) return sampleUserTheme(user_themes_[user_idx], t);
+        return sampleTheme(bi, t);
+    };
 
     if (can_rgb_) {
         for (int i = 0; i < grad_steps_; ++i) {
             const float raw = (float)i / std::max(1, grad_steps_ - 1);
             const float t   = std::pow(raw, GAMMA);
-            RGB rgb = sampleTheme(ti, t);
+            RGB rgb = sample(t);
             if (hue_a > 0.f) {
                 RGB hue = hsvToRgb(hue_offset_ + raw * 60.f, 0.82f, 0.92f);
                 rgb = lerpRGB(rgb, hue, hue_a);
@@ -311,11 +374,18 @@ void Renderer::rebuildColors() {
             init_pair(i + 1, ci, -1);
         }
     } else if (COLORS >= 256) {
-        const short *pal = kFall[ti];
         for (int i = 0; i < grad_steps_; ++i) {
-            const float t  = (float)i / std::max(1, grad_steps_ - 1);
-            const int   pi = std::clamp((int)(t * 47.f + 0.5f), 0, 47);
-            init_pair(i + 1, pal[pi], -1);
+            const float t = (float)i / std::max(1, grad_steps_ - 1);
+            short fg;
+            if (has_user) {
+                // No pre-computed kFall table for user themes — derive dynamically.
+                const RGB rgb = sampleUserTheme(user_themes_[user_idx], t);
+                fg = nearestXterm256(rgb.r, rgb.g, rgb.b);
+            } else {
+                const int pi = std::clamp((int)(t * 47.f + 0.5f), 0, 47);
+                fg = kFall[bi][pi];
+            }
+            init_pair(i + 1, fg, -1);
         }
     } else {
         for (int i = 0; i < grad_steps_; ++i) {
@@ -332,11 +402,18 @@ void Renderer::rebuildColors() {
     for (int lv = 0; lv < HUD_PAIRS; ++lv) {
         const short hud_ci = (short)(COLOR_BASE + grad_steps_ + lv);
         if (can_rgb_) {
-            RGB rgb = sampleTheme(ti, kHF[lv]);
+            RGB rgb = sample(kHF[lv]);
             init_color(hud_ci, rgb.r, rgb.g, rgb.b);
             init_pair(grad_steps_ + 1 + lv, hud_ci, -1);
         } else if (COLORS >= 256) {
-            init_pair(grad_steps_ + 1 + lv, kFall[ti][(int)(kHF[lv] * 47)], -1);
+            short fg;
+            if (has_user) {
+                const RGB rgb = sampleUserTheme(user_themes_[user_idx], kHF[lv]);
+                fg = nearestXterm256(rgb.r, rgb.g, rgb.b);
+            } else {
+                fg = kFall[bi][(int)(kHF[lv] * 47)];
+            }
+            init_pair(grad_steps_ + 1 + lv, fg, -1);
         } else {
             init_pair(grad_steps_ + 1 + lv,
                       kHF[lv] < 0.75f ? COLOR_YELLOW : COLOR_WHITE, -1);
@@ -384,22 +461,54 @@ void Renderer::showFeedback(const std::string &msg) {
 }
 
 void Renderer::setTheme(Theme t) {
-    theme_ = t;
+    theme_abs_ = std::clamp((int)t, 0, (int)Theme::COUNT - 1);
     if (initialized_) rebuildColors();
     invalidatePrev();
     needs_clear_ = true;
 }
 
-Theme Renderer::nextTheme() {
-    theme_ = (Theme)(((int)theme_ + 1) % (int)Theme::COUNT);
+void Renderer::setThemeIdx(int idx) {
+    const int total = (int)Theme::COUNT + (int)user_themes_.size();
+    theme_abs_ = std::clamp(idx, 0, std::max(0, total - 1));
+    if (initialized_) rebuildColors();
+    invalidatePrev();
+    needs_clear_ = true;
+}
+
+void Renderer::setUserThemes(std::vector<UserTheme> themes) {
+    user_themes_ = std::move(themes);
+    // Re-clamp in case the active index now points past the end of the list.
+    const int total = (int)Theme::COUNT + (int)user_themes_.size();
+    if (theme_abs_ >= total) theme_abs_ = 0;
+    if (initialized_) rebuildColors();
+    invalidatePrev();
+    needs_clear_ = true;
+}
+
+int Renderer::nextTheme() {
+    const int total = (int)Theme::COUNT + (int)user_themes_.size();
+    theme_abs_ = (theme_abs_ + 1) % total;
     if (initialized_) rebuildColors();
     invalidatePrev();
     needs_clear_ = true;
     notifyChange();
-    return theme_;
+    return theme_abs_;
 }
 
-std::string Renderer::themeName() const { return kThemeNames[(int)theme_]; }
+Theme Renderer::theme() const {
+    return (theme_abs_ < (int)Theme::COUNT)
+         ? (Theme)theme_abs_
+         : Theme::COUNT;  // sentinel: signals "user theme active"
+}
+
+std::string Renderer::themeName() const {
+    if (theme_abs_ < (int)Theme::COUNT)
+        return kThemeNames[theme_abs_];
+    const int ui = theme_abs_ - (int)Theme::COUNT;
+    if (ui < (int)user_themes_.size())
+        return user_themes_[ui].name;
+    return "?";
+}
 
 int Renderer::increaseBarWidth() {
     bar_w_ = std::min(bar_w_ + 1, BAR_W_MAX);

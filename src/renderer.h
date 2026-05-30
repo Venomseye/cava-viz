@@ -1,4 +1,5 @@
 #pragma once
+#include "user_theme.h"
 #include <algorithm>
 #include <chrono>
 #include <string>
@@ -63,10 +64,14 @@ public:
     void notifyChange();
 
     // ── Theme ─────────────────────────────────────────────────────────────────
-    void        setTheme(Theme t);
-    Theme       nextTheme();
-    Theme       theme()     const { return theme_; }
-    std::string themeName() const;
+    // theme_abs: 0..COUNT-1 = built-in, COUNT+ = user themes (loaded at runtime)
+    void        setTheme(Theme t);          // set by built-in enum (clamped)
+    void        setThemeIdx(int idx);       // set by absolute index (built-in or user)
+    void        setUserThemes(std::vector<UserTheme> themes);  // replace user theme list
+    int         nextTheme();                // cycle to next (built-in → user → wrap)
+    int         themeIdx()  const { return theme_abs_; }
+    Theme       theme()     const;          // Theme::COUNT when a user theme is active
+    std::string themeName() const;          // returns user theme name when applicable
 
     // ── Bar width ─────────────────────────────────────────────────────────────
     int  increaseBarWidth();
@@ -124,9 +129,11 @@ private:
 
     bool  initialized_ {false};
     bool  can_rgb_     {false};
-    Theme theme_       {Theme::FIRE};
+    int   theme_abs_   {0};   // 0..COUNT-1 = built-in, COUNT+ = user theme index
     int   bar_w_       {BAR_W_DEFAULT};
     int   gap_w_       {1};
+
+    std::vector<UserTheme> user_themes_;
 
     TP   last_change_tp_;
     bool hud_visible_  {true};

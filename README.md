@@ -6,6 +6,7 @@ and live config reload — no restart needed to change settings.
 
 ```
   Fire  █▆▄▃▂▁ ▂▄▇█▅▃ ▁▃▅▇█▆▄▂ ▁▂▄▆████▆▄▂▁
+        ████████████████████████████████████████
 ```
 
 ---
@@ -50,9 +51,8 @@ At least one audio backend is required.
 Detects your distro, installs dependencies, builds, and installs to `/usr/local/bin/viz`:
 
 ```bash
-git clone https://github.com/venomseye/cava-viz
+git clone https://github.com/yourname/cava-viz
 cd cava-viz
-chmod +x install.sh uninstall.sh
 ./install.sh
 ```
 
@@ -65,7 +65,7 @@ INSTALL_PREFIX=~/.local ./install.sh
 ### Manual build
 
 ```bash
-git clone https://github.com/venomseye/cava-viz
+git clone https://github.com/yourname/cava-viz
 cd cava-viz
 
 # Configure
@@ -296,3 +296,7 @@ Both directories are created automatically on first run.
 Use `./uninstall.sh` to remove the binary and optionally clean up these files.
 
 ---
+
+## License
+
+MIT

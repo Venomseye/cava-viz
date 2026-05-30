@@ -80,7 +80,9 @@ bool Config::load() {
             std::fprintf(stderr, "cava-viz: '%s' out of range, clamped.\n", #field); \
         field = _c;                                                                \
     }
-    CW(theme,        0,      11)
+    // theme: only enforce non-negative; the upper bound depends on how many
+    // user themes are loaded at runtime and is enforced by setThemeIdx().
+    if (theme < 0) theme = 0;
     CW(bar_width,    1,       8)
     CW(gap_width,    0,       2)
     CW(high_cutoff,  1000,   24000)

@@ -35,6 +35,7 @@ set(CORE_SOURCES
     src/fft_processor.cpp
     src/renderer.cpp
     src/config.cpp
+    src/user_theme.cpp
 )
 
 add_executable(viz ${CORE_SOURCES})
