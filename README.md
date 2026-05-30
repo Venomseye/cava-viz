@@ -296,6 +296,3 @@ Both directories are created automatically on first run.
 Use `./uninstall.sh` to remove the binary and optionally clean up these files.
 
 ---
-
-## License
-https://github.com/venomseye/cava-viz/LICENSE
