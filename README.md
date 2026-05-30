@@ -44,8 +44,9 @@ At least one audio backend (PipeWire or PulseAudio) must be present.
 ## Installation
 
 ```bash
-git clone https://github.com/youruser/cava-viz.git
+git clone https://github.com/venomseye/cava-viz.git
 cd cava-viz
+chmod +x install.sh uninstall.sh
 ./install.sh
 ```
 
