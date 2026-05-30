@@ -1,136 +1,106 @@
-# viz — Terminal Audio Visualizer
+# cava-viz
 
-A real-time terminal audio visualizer built on the [CAVA](https://github.com/karlstav/cava) FFT algorithm.
-Renders stereo frequency bars with 24-bit truecolor gradients, sub-cell Unicode precision,
-and live config reload — no restart needed to change settings.
+A terminal audio visualizer built on the [CAVA](https://github.com/karlstav/cava) algorithm — dual-FFT analysis, Monstercat smoothing, per-bar EQ, and autosensitivity, rendered in ncurses with truecolor gradients.
 
 ```
-  Fire  █▆▄▃▂▁ ▂▄▇█▅▃ ▁▃▅▇█▆▄▂ ▁▂▄▆████▆▄▂▁
-        ████████████████████████████████████████
+ ▁         ▄                       ▂
+ █  ▇  ▃   █  ▆  ▂              ▅  █  ▃
+ █  █  █   █  █  █  ▄  ▂  ▁  ▂  █  █  █
+─────────────────────────────────────────
+ [pw] alsa_output.pci-0000_00_1f.3.monitor   Neon  60fps
 ```
 
 ---
 
 ## Features
 
-- **12 themes** with perceptual HSV-arc gradients — Fire, Plasma, Neon, Teal, Sunset, Candy,
-  Aurora, Inferno, White, Rose, Mermaid, Vapor
-- **24-bit truecolor** on Konsole, GNOME Terminal, kitty, Alacritty, iTerm2, Windows Terminal
-  and anything that sets `COLORTERM=truecolor`
-- **Stereo mirror layout** — left and right channels mirrored from the centre
-- **Sub-cell precision** using Unicode eighth-block characters (▁▂▃▄▅▆▇█) for smooth bar tips
-- **Dual FFT** — separate bass and mid/treble transforms with log-distributed frequency bins
-- **Live config reload** — edit `~/.config/cava-viz/config` while running; inotify picks up
-  changes instantly with no restart
-- **PipeWire and PulseAudio** backends with automatic detection and reconnect watchdog
-- **Auto-sensitivity** — overshoot-based feedback keeps peaks near 90% without clipping
-- **A-weighting** — IEC 61672 perceptual frequency weighting (optional)
-- **Auto-mono** — collapses stereo to mono when L/R correlation is sustained above 97%
+- **CAVA-faithful algorithm** — dual-FFT, per-bar frequency EQ, Monstercat bar spreading, and autosensitivity derived directly from CAVA's source
+- **Truecolor gradients** — 12 built-in themes with smooth HSV arcs; graceful fallback to 256-color and 8-color terminals
+- **User-defined themes** — write a simple `.theme` file with hex color stops; the visualizer hot-reloads them instantly while running
+- **Stereo visualization** — side-by-side left/right channels with a mono collapse option
+- **Live config reload** — edit `~/.config/cava-viz/config` while running; inotify picks up changes in under a second
+- **Low CPU footprint** — ncurses dirty-region rendering, frame-deadline sleep via `clock_nanosleep`, and throttled color rebuilds
+- **Dual audio backend** — PipeWire and PulseAudio; auto-selects at startup, falls back gracefully, reconnects on device loss
+- **HUD** — displays audio source, backend, active theme, FPS, sensitivity, and stereo state; pinnable or auto-hiding
 
 ---
 
 ## Requirements
 
-| Library | Debian / Ubuntu | Arch | Fedora |
-|---|---|---|---|
-| C++17 compiler | `build-essential` | `base-devel` | `gcc-c++` |
-| CMake ≥ 3.16 | `cmake` | `cmake` | `cmake` |
-| ncursesw | `libncursesw5-dev` | `ncurses` | `ncurses-devel` |
-| FFTW3 | `libfftw3-dev` | `fftw` | `fftw-devel` |
-| PipeWire *(optional)* | `libpipewire-0.3-dev` | `pipewire` | `pipewire-devel` |
-| PulseAudio *(optional)* | `libpulse-dev` | `libpulse` | `pulseaudio-libs-devel` |
+| Dependency | Package (Arch) | Package (Debian/Ubuntu) |
+|---|---|---|
+| C++17 compiler | `gcc` / `clang` | `g++` / `clang++` |
+| CMake ≥ 3.16 | `cmake` | `cmake` |
+| Ninja (optional, faster) | `ninja` | `ninja-build` |
+| FFTW3 | `fftw` | `libfftw3-dev` |
+| ncursesw | `ncurses` | `libncursesw5-dev` |
+| PipeWire *(optional)* | `pipewire` | `libpipewire-0.3-dev` |
+| PulseAudio *(optional)* | `libpulse` | `libpulse-dev` |
 
-At least one audio backend is required.
+At least one audio backend (PipeWire or PulseAudio) must be present.
 
 ---
 
-## Install
-
-### One-command install (recommended)
-
-Detects your distro, installs dependencies, builds, and installs to `/usr/local/bin/viz`:
+## Installation
 
 ```bash
-git clone https://github.com/yourname/cava-viz
+git clone https://github.com/youruser/cava-viz.git
 cd cava-viz
 ./install.sh
 ```
 
-Install to a custom prefix (no `sudo` needed for `~/.local`):
+The script configures with CMake, builds with Ninja (or Make as a fallback), and installs the `viz` binary to `/usr/local/bin`.
+
+**Options:**
 
 ```bash
-INSTALL_PREFIX=~/.local ./install.sh
+./install.sh                  # incremental build (fast on rebuilds)
+./install.sh --clean          # wipe build dir first, then build
+INSTALL_PREFIX=~/.local ./install.sh   # install to a custom prefix
 ```
 
-### Manual build
-
-```bash
-git clone https://github.com/yourname/cava-viz
-cd cava-viz
-
-# Configure
-cmake -B build -DCMAKE_BUILD_TYPE=Release
-
-# Build
-cmake --build build --parallel
-
-# Run directly without installing
-./build/viz
-
-# Or install
-sudo cmake --install build
-```
-
-### Build options
-
-```bash
-# Disable a backend
-cmake -B build -DENABLE_PIPEWIRE=OFF
-cmake -B build -DENABLE_PULSEAUDIO=OFF
-
-# Debug build — enables AddressSanitizer and UBSan
-cmake -B build -DCMAKE_BUILD_TYPE=Debug
-```
-
-### Uninstall
+**To uninstall:**
 
 ```bash
 ./uninstall.sh
 ```
 
-Prompts before removing saved config and state files.
+**Manual build** (if you prefer to drive CMake yourself):
+
+```bash
+cmake -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build -j$(nproc)
+sudo cmake --install build
+```
 
 ---
 
 ## Usage
 
 ```
-viz [options]
-
-  -b <backend>   Audio backend: auto | pipewire | pulse  (default: auto)
-  -s <source>    Explicit audio source / device name
-  -M             Capture microphone instead of loopback monitor
-  -r <Hz>        Sample rate (default: 44100)
-  -t <0-11>      Start on this theme index
-  -f <n>         Target FPS (default: from config, fallback 60)
-  -w             Auto bar width based on terminal columns
-  -h             Show help
+viz [OPTIONS]
 ```
 
-**Examples**
+| Flag | Description | Default |
+|---|---|---|
+| `-b <pulse\|pipewire\|auto>` | Audio backend | `auto` |
+| `-s <source>` | Explicit capture device | *(auto-detect monitor)* |
+| `-M` | Capture from microphone instead of monitor | off |
+| `-r <Hz>` | Sample rate | `44100` |
+| `-t <0–11>` | Starting theme index | `0` (Fire) |
+| `-f <n>` | Target FPS | `60` |
+| `-w` | Auto bar width (fills terminal) | off |
+| `-V` | Print version and exit | |
+| `-h` | Print help and exit | |
+
+**Examples:**
 
 ```bash
-# Auto-detect backend and source
-viz
-
-# Force PipeWire with a specific monitor
-viz -b pipewire -s "alsa_output.pci-0000_00_1f.3.analog-stereo.monitor"
-
-# Microphone input via PulseAudio
-viz -b pulse -M
-
-# Auto-sized bars, Neon theme
-viz -w -t 2
+viz                           # auto-detect backend and source
+viz -b pipewire               # force PipeWire
+viz -s bluez_output.AA_BB.monitor   # specific source
+viz -M                        # microphone visualizer
+viz -t 2 -f 30 -w             # Neon theme, 30 fps, auto width
 ```
 
 ---
@@ -139,164 +109,149 @@ viz -w -t 2
 
 | Key | Action |
 |---|---|
-| `t` | Next theme |
-| `g` | Cycle gap width — 0 → 1 → 2 → 0 |
-| `]` | Increase bar width |
-| `[` | Decrease bar width |
-| `↑` | Increase sensitivity (disables auto) |
-| `↓` | Decrease sensitivity (disables auto) |
-| `a` | Toggle auto-sensitivity |
-| `s` | Toggle stereo / mono |
-| `c` | Toggle colour cycle (hue rotates over time) |
-| `v` | Toggle per-bar colour (bass→base, treble→tip) |
-| `w` | Toggle A-weighting (IEC 61672 perceptual) |
-| `n` | Toggle auto-mono (collapse on high L/R correlation) |
-| `h` | Toggle HUD pin (always visible) |
 | `q` | Quit |
+| `t` | Cycle to next theme (built-in then user-defined) |
+| `g` | Cycle gap width: 0 → 1 → 2 |
+| `]` / `[` | Increase / decrease bar width |
+| `↑` / `↓` | Manually adjust sensitivity |
+| `a` | Toggle autosensitivity |
+| `s` | Toggle stereo / mono |
+| `h` | Toggle HUD pin (always visible vs auto-hide) |
+| `c` | Toggle colour cycle (hue rotation over time) |
+| `v` | Toggle per-bar colour (maps colour to bar index) |
+| `w` | Toggle A-weighting (IEC 61672 perceptual curve) |
+| `n` | Toggle auto-mono (collapses stereo when L≈R) |
+
+All settings are persisted to `~/.config/cava-viz/config` on every keypress.
 
 ---
 
-## Config file
+## Configuration
 
-**Location:** `~/.config/cava-viz/config`
-
-Created automatically on first run with all fields documented inline.
-Changes are applied **instantly** while `viz` is running — no restart needed.
+The config file is created on first run at `~/.config/cava-viz/config`.
+Edit it while the visualizer is running — changes are reloaded instantly.
 
 ```ini
-# ── Visual ────────────────────────────────────────────────────────────────────
-# 0=Fire 1=Plasma 2=Neon 3=Teal 4=Sunset 5=Candy
-# 6=Aurora 7=Inferno 8=White 9=Rose 10=Mermaid 11=Vapor
-theme          = 0
-bar_width      = 2        # 1–8
-gap_width      = 1        # 0–2
-hud_pinned     = 0        # 1 = HUD always visible
+# ~/.config/cava-viz/config
 
-# ── Rendering modes ───────────────────────────────────────────────────────────
-colour_cycle   = 0        # slowly rotate gradient hue over time
-per_bar_colour = 0        # map colour to bar index (bass=base, treble=tip)
+# ── Visual ────────────────────────────────────────────────────────────────
+theme          = 2          # 0=Fire 1=Plasma 2=Neon 3=Teal 4=Sunset 5=Candy
+                            # 6=Aurora 7=Inferno 8=White 9=Rose 10=Mermaid 11=Vapor
+                            # 12+ = user themes (alphabetical by filename)
+bar_width      = 2
+gap_width      = 1
+hud_pinned     = 0
 
-# ── Audio ─────────────────────────────────────────────────────────────────────
-stereo         = 1        # 0 = mono
-high_cutoff    = 20000    # Hz, 1000–24000
+# ── Rendering modes ───────────────────────────────────────────────────────
+colour_cycle   = 0          # slowly rotate gradient hue over time
+per_bar_colour = 0          # map colour to bar position (bass→treble)
 
-# ── FFT / Smoothing ───────────────────────────────────────────────────────────
-gravity        = 1.00     # fall speed: 0.1 (floaty) – 5.0 (instant)
-monstercat     = 1.50     # adjacent-bar spread: 0.0 (off) – 5.0
-rise_factor    = 0.30     # attack smoothing: 0.0 (instant) – 0.95 (very slow)
-bass_smooth    = 0.00     # extra bass decay: 0.0 (off) – 1.0
+# ── Audio ─────────────────────────────────────────────────────────────────
+stereo         = 1
+high_cutoff    = 10000      # Hz — frequencies above this are ignored
 
-# ── Audio processing ──────────────────────────────────────────────────────────
-a_weighting    = 0        # IEC 61672 perceptual frequency weighting
-noise_gate     = 0.020    # snap to zero below this level: 0.0–0.2
-auto_mono      = 0        # collapse to mono on high L/R correlation
+# ── FFT / Smoothing ───────────────────────────────────────────────────────
+gravity        = 1.00       # fall speed (0.1=slow, 5.0=instant)
+monstercat     = 1.50       # bar spread (0=off)
+rise_factor    = 0.90       # attack smoothing (0=instant, 0.95=very slow)
+bass_smooth    = 0.10       # extra smoothing for bass bars
 
-# ── Sensitivity ───────────────────────────────────────────────────────────────
-sensitivity    = 1.50     # 0.2–8.0
-auto_sens      = 1        # auto-adjust to keep peaks near 90%
+# ── Audio processing ──────────────────────────────────────────────────────
+a_weighting    = 0          # IEC 61672 perceptual frequency weighting
+noise_gate     = 0.020      # bars below this threshold snap to zero
+auto_mono      = 0          # collapse stereo to mono when channels are correlated
 
-# ── Performance ───────────────────────────────────────────────────────────────
-fps            = 60       # 10–240
+# ── Sensitivity ───────────────────────────────────────────────────────────
+sensitivity    = 1.00
+auto_sens      = 1
+
+# ── Performance ───────────────────────────────────────────────────────────
+fps            = 60
 ```
 
 ---
 
 ## Themes
 
-| # | Name | Colour arc |
+### Built-in
+
+| # | Name | Character |
 |---|---|---|
-| 0 | **Fire** | vivid-orange → orange-red → red → hot-pink |
-| 1 | **Plasma** | blue-violet → electric-blue → neon-cyan |
-| 2 | **Neon** | electric-magenta → violet → electric-blue |
-| 3 | **Teal** | dark-teal → teal → bright-aqua |
-| 4 | **Sunset** | amber → orange-red → crimson → deep-violet |
-| 5 | **Candy** | hot-rose → magenta → violet |
-| 6 | **Aurora** | sea-green → teal → sky-blue → soft-violet |
-| 7 | **Inferno** | blood-red → orange → amber → bright-gold |
-| 8 | **White** | solid bright white |
-| 9 | **Rose** | crimson-rose → coral → salmon → orchid |
-| 10 | **Mermaid** | ocean-blue → teal → periwinkle → orchid |
-| 11 | **Vapor** | neon-purple → violet-magenta → hot-pink |
+| 0 | Fire | Deep red → amber → pale yellow |
+| 1 | Plasma | Magenta → violet → electric blue |
+| 2 | Neon | Cyan → electric green |
+| 3 | Teal | Deep teal → sky blue → white |
+| 4 | Sunset | Deep purple → salmon → gold |
+| 5 | Candy | Hot pink → lavender → mint |
+| 6 | Aurora | Deep navy → emerald → cyan |
+| 7 | Inferno | Black → deep red → bright orange |
+| 8 | White | Cool grey → pure white |
+| 9 | Rose | Dark maroon → rose → blush |
+| 10 | Mermaid | Deep indigo → teal → seafoam |
+| 11 | Vapor | Deep purple → pink → pale cyan |
 
----
+### User-defined
 
-## Troubleshooting
+Create `~/.config/cava-viz/themes/` and drop `.theme` files in it.
+They are loaded alphabetically and cycle right after the built-ins with the `t` key.
+Adding, editing, or removing a `.theme` file reloads all user themes instantly — no restart needed.
 
-### Wrong colours on Konsole / GNOME Terminal
+**Format:**
 
-`viz` automatically switches `TERM` to `xterm-direct` before starting ncurses so that
-`init_color()` works correctly. If colours still look wrong (raw xterm-256 cube colours
-instead of the theme gradient), check that `xterm-direct` is in your terminfo database:
+```ini
+# ~/.config/cava-viz/themes/ocean.theme
 
-```bash
-infocmp xterm-direct 2>&1 | head -2
+name   = Ocean
+
+stop_0 = 0.00  #003366
+stop_1 = 0.40  #0055aa
+stop_2 = 0.75  #00aaee
+stop_3 = 1.00  #00ffcc
 ```
 
-If it is missing, update ncurses:
+**Rules:**
+- `pos` runs from `0.0` (bar bottom) to `1.0` (bar top)
+- Colors are `#RRGGBB` hex (upper or lowercase)
+- 2–8 stops per theme; stops can appear in any order
+- `name` is optional — defaults to the filename without `.theme`
+- Lines starting with `#` are comments
 
-```bash
-# Debian / Ubuntu
-sudo apt install libncurses6
+**More examples:**
 
-# Arch
-sudo pacman -S ncurses
-```
+```ini
+# synthwave.theme
+name   = Synthwave
+stop_0 = 0.00  #1a0033
+stop_1 = 0.35  #8800cc
+stop_2 = 0.65  #ff00aa
+stop_3 = 1.00  #ffffaa
 
-### No audio — bars stay at zero
+# matrix.theme
+name   = Matrix
+stop_0 = 0.00  #001100
+stop_1 = 0.50  #00aa00
+stop_2 = 1.00  #ccffcc
 
-```bash
-# List available monitor sources
-pactl list short sources | grep monitor
-
-# Run with an explicit source
-viz -s "alsa_output.pci-0000_00_1f.3.analog-stereo.monitor"
-```
-
-`viz` auto-retries every 5 seconds of silence and reconnects automatically when
-the default sink changes (e.g. plugging in headphones), so most device switches
-are handled without restarting.
-
-### Build fails — no backend found
-
-```bash
-# Debian / Ubuntu
-sudo apt install libpipewire-0.3-dev libpulse-dev
-
-# Arch
-sudo pacman -S pipewire libpulse
-
-# Fedora
-sudo dnf install pipewire-devel pulseaudio-libs-devel
-```
-
-### Binary not found after install
-
-The default install prefix is `/usr/local`. If `viz` is not on your `PATH`:
-
-```bash
-export PATH="$PATH:/usr/local/bin"
-```
-
-Or install to a prefix already on your path:
-
-```bash
-INSTALL_PREFIX=~/.local ./install.sh
+# dracula.theme
+name   = Dracula
+stop_0 = 0.00  #282a36
+stop_1 = 0.30  #6272a4
+stop_2 = 0.65  #bd93f9
+stop_3 = 1.00  #ff79c6
 ```
 
 ---
 
-## File locations
+## File Locations
 
 | Path | Purpose |
 |---|---|
-| `~/.config/cava-viz/config` | User config — edit live |
-| `~/.local/state/cava-viz/state` | Last used audio source (auto-saved) |
-
-Both directories are created automatically on first run.
-Use `./uninstall.sh` to remove the binary and optionally clean up these files.
+| `~/.config/cava-viz/config` | Main configuration (keybindings write here) |
+| `~/.config/cava-viz/state` | Last-used audio source (persisted across restarts) |
+| `~/.config/cava-viz/themes/` | User-defined `.theme` files |
 
 ---
 
 ## License
 
-MIT
+[MIT](LICENSE)
