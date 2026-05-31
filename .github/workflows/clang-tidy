@@ -1,0 +1,64 @@
+---
+# ── Enabled checks ────────────────────────────────────────────────────────────
+#
+# Philosophy: catch real bugs and C++17 modernisation opportunities.
+# Avoid checks that are purely stylistic, too noisy, or conflict with the
+# deliberate patterns in this codebase (e.g. low-level audio buffer handling).
+#
+Checks: >-
+  clang-analyzer-*,
+  -clang-analyzer-security.insecureAPI.DeprecatedOrUnsafeBufferHandling,
+  bugprone-assignment-in-if-condition,
+  bugprone-incorrect-roundings,
+  bugprone-integer-division,
+  bugprone-misplaced-widening-cast,
+  bugprone-move-forwarding-reference,
+  bugprone-signed-char-misuse,
+  bugprone-sizeof-expression,
+  bugprone-suspicious-semicolon,
+  bugprone-too-small-loop-variable,
+  bugprone-use-after-move,
+  modernize-make-shared,
+  modernize-make-unique,
+  modernize-use-emplace,
+  modernize-use-nullptr,
+  modernize-use-override,
+  performance-for-range-copy,
+  performance-inefficient-string-concatenation,
+  performance-inefficient-vector-operation,
+  performance-move-const-arg,
+  performance-unnecessary-copy-initialization,
+  performance-unnecessary-value-param,
+  readability-avoid-const-params-in-decls,
+  readability-const-return-type,
+  readability-redundant-control-flow,
+  readability-string-compare,
+
+# ── Hard errors (always fail the build) ──────────────────────────────────────
+WarningsAsErrors: >-
+  bugprone-use-after-move,
+  clang-analyzer-core.NullDereference,
+  clang-analyzer-cplusplus.Move,
+  clang-analyzer-deadcode.DeadStores,
+
+# ── File filters ──────────────────────────────────────────────────────────────
+# Only lint headers inside src/ and tests/.
+# fft_processor is intentionally excluded — it implements the CAVA algorithm
+# verbatim and should not be reformatted or auto-fixed.
+HeaderFilterRegex: '^(src|tests)/(?!fft_processor)'
+
+# ── Format style ─────────────────────────────────────────────────────────────
+FormatStyle:       file
+
+# ── Per-check options ─────────────────────────────────────────────────────────
+CheckOptions:
+  - key:   modernize-make-unique.MakeSmartPtrFunction
+    value: 'std::make_unique'
+  - key:   modernize-make-shared.MakeSmartPtrFunction
+    value: 'std::make_shared'
+  - key:   modernize-use-emplace.ContainersWithPushBack
+    value: '::std::vector;::std::deque;::std::list'
+  - key:   performance-for-range-copy.WarnOnAllAutoCopies
+    value: 'true'
+  - key:   performance-unnecessary-value-param.AllowedTypes
+    value: ''

@@ -1,0 +1,76 @@
+---
+Language:        Cpp
+Standard:        c++17
+
+# Base on LLVM; override specifics to match the project's existing style.
+BasedOnStyle:    LLVM
+
+# ── Indentation ───────────────────────────────────────────────────────────────
+IndentWidth:                         4
+TabWidth:                            4
+UseTab:                              Never
+AccessModifierOffset:                -4
+ConstructorInitializerIndentWidth:   4
+ContinuationIndentWidth:             4
+IndentCaseLabels:                    true
+
+# ── Column limit ──────────────────────────────────────────────────────────────
+ColumnLimit:                         100
+
+# ── Braces (K&R: opening brace on the same line) ─────────────────────────────
+BreakBeforeBraces:                   Attach
+
+# ── Short constructs ──────────────────────────────────────────────────────────
+AllowShortBlocksOnASingleLine:       Empty
+AllowShortCaseLabelsOnASingleLine:   false
+AllowShortFunctionsOnASingleLine:    Inline
+AllowShortIfStatementsOnASingleLine: Never
+AllowShortLoopsOnASingleLine:        false
+AllowShortLambdasOnASingleLine:      Inline
+
+# ── Line breaking ─────────────────────────────────────────────────────────────
+BreakBeforeTernaryOperators:         true
+BreakConstructorInitializers:        BeforeColon
+BreakStringLiterals:                 true
+AlwaysBreakTemplateDeclarations:     Yes
+
+# ── Alignment ─────────────────────────────────────────────────────────────────
+AlignAfterOpenBracket:               Align
+AlignConsecutiveAssignments:         None
+AlignConsecutiveDeclarations:        None
+AlignConsecutiveMacros:              None
+AlignEscapedNewlines:                Left
+AlignOperands:                       Align
+AlignTrailingComments:               true
+
+# ── Pointers and references (left-aligned: int* p, not int *p) ───────────────
+PointerAlignment:                    Left
+ReferenceAlignment:                  Left
+DerivePointerAlignment:              false
+
+# ── Spaces ────────────────────────────────────────────────────────────────────
+SpaceAfterCStyleCast:                true
+SpaceAfterTemplateKeyword:           false
+SpaceBeforeAssignmentOperators:      true
+SpaceBeforeCpp11BracedList:          false
+SpaceBeforeParens:                   ControlStatements
+SpaceBeforeRangeBasedForLoopColon:   true
+SpaceInEmptyParentheses:             false
+SpacesInAngles:                      Never
+SpacesInContainerLiterals:           false
+SpacesInParentheses:                 false
+SpacesInSquareBrackets:              false
+
+# ── Includes ──────────────────────────────────────────────────────────────────
+# Do NOT sort includes — the project uses deliberate grouping with blank lines.
+SortIncludes:                        Never
+IncludeBlocks:                       Preserve
+
+# ── Comments ──────────────────────────────────────────────────────────────────
+# Do NOT reflow — the project uses ── section ── banner comments.
+ReflowComments:                      false
+
+# ── Misc ──────────────────────────────────────────────────────────────────────
+Cpp11BracedListStyle:                true
+MaxEmptyLinesToKeep:                 2
+KeepEmptyLinesAtTheStartOfBlocks:    false
