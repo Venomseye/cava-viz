@@ -2,7 +2,8 @@
 #include <string>
 #include <vector>
 
-// ── User-defined gradient theme ───────────────────────────────────────────────
+// ── User-defined gradient theme
+// ───────────────────────────────────────────────
 //
 // A .theme file lives in ~/.config/cava-viz/themes/ and looks like:
 //
@@ -23,13 +24,13 @@
 //   • The file suffix must be .theme
 
 struct UserThemeStop {
-    float pos;      // 0.0–1.0
-    short r, g, b;  // ncurses scale 0–1000 (converted from #RRGGBB on load)
+  float pos;     // 0.0–1.0
+  short r, g, b; // ncurses scale 0–1000 (converted from #RRGGBB on load)
 };
 
 struct UserTheme {
-    std::string              name;
-    std::vector<UserThemeStop> stops;  // always sorted ascending by pos
+  std::string name;
+  std::vector<UserThemeStop> stops; // always sorted ascending by pos
 };
 
 // Returns the path to the user themes directory.
@@ -37,6 +38,7 @@ struct UserTheme {
 std::string themesDir();
 
 // Loads all *.theme files from themesDir().
-// • Silently ignores a missing directory, unreadable files, and malformed files.
-// • Themes are returned in alphabetical filename order (stable across reloads).
+// • Silently ignores a missing directory, unreadable files, and malformed
+// files. • Themes are returned in alphabetical filename order (stable across
+// reloads).
 std::vector<UserTheme> loadUserThemes();
