@@ -36,6 +36,9 @@ set(CORE_SOURCES
     src/renderer.cpp
     src/config.cpp
     src/user_theme.cpp
+    src/audio_utils.cpp
+    src/bar_output.cpp
+    src/bar_mode.cpp
 )
 
 add_executable(viz ${CORE_SOURCES})

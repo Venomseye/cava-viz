@@ -1,4 +1,7 @@
 #include "audio_capture.h"
+#include "audio_utils.h"
+#include "bar_mode.h"
+#include "bar_output.h"
 #include "config.h"
 #include "fft_processor.h"
 #include "renderer.h"
@@ -8,13 +11,6 @@
 // "unknown" when the binary is built without CMake (e.g. a plain Makefile).
 #ifndef CAVA_VIZ_VERSION
 #  define CAVA_VIZ_VERSION "unknown"
-#endif
-
-#ifdef HAVE_PULSEAUDIO
-#  include "pulse_capture.h"
-#endif
-#ifdef HAVE_PIPEWIRE
-#  include "pipewire_capture.h"
 #endif
 
 #include <algorithm>
@@ -47,66 +43,6 @@ static void sig_handler(int s) {
     else if (s==SIGWINCH)      g_resize.store(true);
 }
 
-// ── Monitor detection (throttled to once per POLL_SECS) ───────────────────────
-static constexpr double MONITOR_POLL_SECS = 5.0;
-
-static std::string runCmd(const char* cmd) {
-    FILE* fp = popen(cmd, "r");
-    if (!fp) return "";
-    char buf[256] = {};
-    bool ok = (std::fgets(buf, sizeof(buf), fp) != nullptr);
-    pclose(fp);
-    if (!ok) return "";
-    std::string s = buf;
-    while (!s.empty() && (s.back()=='\n'||s.back()=='\r'||s.back()==' '))
-        s.pop_back();
-    return s;
-}
-
-static std::string detectMonitor() {
-    using Clock = std::chrono::steady_clock;
-    static std::string      cached;
-    static Clock::time_point last_call = Clock::time_point{};
-    const auto now = Clock::now();
-    if (std::chrono::duration<double>(now - last_call).count() < MONITOR_POLL_SECS)
-        return cached;
-    last_call = now;
-    std::string sink = runCmd("pactl get-default-sink 2>/dev/null");
-    cached = sink.empty()
-           ? runCmd("pactl list short sources 2>/dev/null | awk '/\\.monitor/{print $2;exit}'")
-           : (sink + ".monitor");
-    return cached;
-}
-
-// ── Audio factory ─────────────────────────────────────────────────────────────
-static std::unique_ptr<AudioCapture> makeAudio(
-        const std::string& backend, const std::string& source,
-        int sr, int ch, AudioCapture::AudioCallback cb)
-{
-    // try1 is only needed when at least one backend is compiled in.
-    // Without this guard, GCC on Debian treats the unused lambda as an error.
-#if defined(HAVE_PIPEWIRE) || defined(HAVE_PULSEAUDIO)
-    auto try1 = [&](std::unique_ptr<AudioCapture> cap) -> std::unique_ptr<AudioCapture> {
-        if (!cap->init(source, sr, ch)) return nullptr;
-        if (!cap->start(cb))            return nullptr;
-        return cap;
-    };
-#endif
-    std::unique_ptr<AudioCapture> a;
-#ifdef HAVE_PIPEWIRE
-    if (backend=="auto"||backend=="pipewire") {
-        a = try1(std::make_unique<PipeWireCapture>());
-        if (a || backend=="pipewire") return a;
-    }
-#endif
-#ifdef HAVE_PULSEAUDIO
-    if (!a && (backend=="auto"||backend=="pulse"))
-        a = try1(std::make_unique<PulseAudioCapture>());
-#endif
-    (void)backend; (void)source; (void)sr; (void)ch; (void)cb; // suppress warnings when both disabled
-    return a;
-}
-
 static void print_usage(const char* p) {
     printf(
         "Usage: %s [OPTIONS]\n\n"
@@ -121,7 +57,18 @@ static void print_usage(const char* p) {
         "  -w                         Auto bar width\n"
         "  -V                         Show version and exit\n"
         "  -h                         Show help\n\n"
-        "Keys:\n"
+        "Bar mode (headless — write to stdout, FIFO, or Unix socket):\n"
+        "  --bar                      Enable bar mode\n"
+        "  --bar-format <fmt>         plain|waybar|polybar|eww|raw|dzen2|i3bar  (default: plain)\n"
+        "  --bar-count  <n>           Bars per channel  (default: 10)\n"
+        "  --bar-chars  <chars>       UTF-8 level characters  (default: ▁▂▃▄▅▆▇█)\n"
+        "  --bar-color  <#hex>        Accent color for tagged formats  (default: #00ffcc)\n"
+        "  --bar-fps    <n>           Output frame rate  (default: 15)\n"
+        "  --bar-stereo <merge|split> Stereo handling  (default: merge)\n"
+        "  --bar-sep    <str>         Separator for split stereo  (default: ' | ')\n"
+        "  --bar-sink   <type>        stdout|fifo|socket  (default: stdout)\n"
+        "  --bar-out    <path>        Output path for fifo or socket sink\n\n"
+        "Keys (terminal mode only):\n"
         "  q          Quit\n"
         "  t          Next theme\n"
         "  g          Cycle gap (0-2)\n"
@@ -133,26 +80,12 @@ static void print_usage(const char* p) {
         "  c          Toggle colour cycle\n"
         "  v          Toggle per-bar colour\n"
         "  w          Toggle A-weighting\n"
-        "  n          Toggle auto-mono (collapse stereo on high correlation)\n\n"
+        "  n          Toggle auto-mono\n\n"
         "Config: %s\n"
         "  Edit while running — inotify reloads changes instantly.\n\n"
         "Themes: Fire Plasma Neon Teal Sunset Candy Aurora Inferno "
                "White Rose Mermaid Vapor\n",
         p, Config::configPath().c_str());
-}
-
-// ── Apply full FFT config ─────────────────────────────────────────────────────
-static void applyFFTConfig(FFTProcessor& fft, const Config& cfg) {
-    fft.setSensitivity(cfg.sensitivity);
-    fft.setAutoSens(cfg.auto_sens);
-    fft.setGravity(cfg.gravity);
-    fft.setMonstercat(cfg.monstercat);
-    fft.setHighCutoff(cfg.high_cutoff);
-    fft.setRiseFactor(cfg.rise_factor);
-    fft.setBassSmooth(cfg.bass_smooth);
-    fft.setAWeighting(cfg.a_weighting);
-    fft.setNoiseGate(cfg.noise_gate);
-    fft.setAutoMono(cfg.auto_mono);
 }
 
 // ── Apply rendering config ────────────────────────────────────────────────────
@@ -164,58 +97,6 @@ static void applyRendererConfig(Renderer& r, const Config& cfg,
     r.setHudPinned(cfg.hud_pinned);
     r.setColourCycle(cfg.colour_cycle);
     r.setPerBarColour(cfg.per_bar_colour);
-}
-
-// ── Audio start helper ────────────────────────────────────────────────────────
-// Extracted from a [&] capture lambda so ownership and parameters are explicit.
-// FFTProcessor is passed directly; the callback is created internally so there
-// is no need for a make_cb factory in main().
-static void doStartAudio(
-    const std::string& backend, const std::string& cli_source,
-    bool use_mic, int sample_rate, int channels,
-    FFTProcessor& fft, Config& cfg,
-    std::unique_ptr<AudioCapture>& audio,
-    std::string& active_source, std::string& bname)
-{
-    AudioCapture::AudioCallback cb =
-        [&fft](const std::vector<float>& s, int ch) {
-            fft.addSamples(s, ch);
-        };
-
-    if (!cli_source.empty()) {
-        active_source = cli_source;
-        audio = makeAudio(backend, active_source, sample_rate, channels, cb);
-    } else if (use_mic) {
-        active_source = "";
-        audio = makeAudio(backend, active_source, sample_rate, channels, cb);
-        if (!audio) {
-            active_source = "default";
-            audio = makeAudio(backend, active_source, sample_rate, channels, cb);
-        }
-    } else {
-        active_source = "";
-        audio = makeAudio(backend, active_source, sample_rate, channels, cb);
-        if (!audio && !cfg.last_source.empty()) {
-            active_source = cfg.last_source;
-            audio = makeAudio(backend, active_source, sample_rate, channels, cb);
-        }
-        if (!audio) {
-            active_source = detectMonitor();
-            if (!active_source.empty())
-                audio = makeAudio(backend, active_source, sample_rate, channels, cb);
-        }
-        if (!audio) {
-            active_source = "";
-            audio = makeAudio(backend, active_source, sample_rate, channels, cb);
-        }
-    }
-    if (audio) {
-        bname = audio->backendName();
-        if (!active_source.empty() && !use_mic) {
-            cfg.last_source = active_source;
-            cfg.saveState();
-        }
-    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -244,17 +125,47 @@ int main(int argc, char* argv[]) {
     bool use_mic          = false;
     bool force_auto_width = false;
 
+    // ── Bar mode config ───────────────────────────────────────────────────────
+    bool          bar_mode {false};
+    BarOutputConfig bar_cfg;
+
+    // ── Argument parsing ──────────────────────────────────────────────────────
+    // Long-only bar options get indices above the printable ASCII range.
+    enum {
+        OPT_BAR        = 1000,
+        OPT_BAR_FORMAT,
+        OPT_BAR_COUNT,
+        OPT_BAR_CHARS,
+        OPT_BAR_COLOR,
+        OPT_BAR_FPS,
+        OPT_BAR_STEREO,
+        OPT_BAR_SEP,
+        OPT_BAR_SINK,
+        OPT_BAR_OUT,
+    };
+
     static const struct option long_opts[] = {
-        {"backend",   required_argument, nullptr, 'b'},
-        {"source",    required_argument, nullptr, 's'},
-        {"mic",       no_argument,       nullptr, 'M'},
-        {"rate",      required_argument, nullptr, 'r'},
-        {"theme",     required_argument, nullptr, 't'},
-        {"fps",       required_argument, nullptr, 'f'},
-        {"autowidth", no_argument,       nullptr, 'w'},
-        {"version",   no_argument,       nullptr, 'V'},
-        {"help",      no_argument,       nullptr, 'h'},
-        {nullptr,     0,                 nullptr,  0 }
+        {"backend",    required_argument, nullptr, 'b'},
+        {"source",     required_argument, nullptr, 's'},
+        {"mic",        no_argument,       nullptr, 'M'},
+        {"rate",       required_argument, nullptr, 'r'},
+        {"theme",      required_argument, nullptr, 't'},
+        {"fps",        required_argument, nullptr, 'f'},
+        {"autowidth",  no_argument,       nullptr, 'w'},
+        {"version",    no_argument,       nullptr, 'V'},
+        {"help",       no_argument,       nullptr, 'h'},
+        // Bar mode (long-only)
+        {"bar",        no_argument,       nullptr, OPT_BAR},
+        {"bar-format", required_argument, nullptr, OPT_BAR_FORMAT},
+        {"bar-count",  required_argument, nullptr, OPT_BAR_COUNT},
+        {"bar-chars",  required_argument, nullptr, OPT_BAR_CHARS},
+        {"bar-color",  required_argument, nullptr, OPT_BAR_COLOR},
+        {"bar-fps",    required_argument, nullptr, OPT_BAR_FPS},
+        {"bar-stereo", required_argument, nullptr, OPT_BAR_STEREO},
+        {"bar-sep",    required_argument, nullptr, OPT_BAR_SEP},
+        {"bar-sink",   required_argument, nullptr, OPT_BAR_SINK},
+        {"bar-out",    required_argument, nullptr, OPT_BAR_OUT},
+        {nullptr,      0,                 nullptr,  0 }
     };
     int o;
     while ((o = getopt_long(argc, argv, "b:s:Mr:t:f:wVh", long_opts, nullptr)) != -1) {
@@ -269,8 +180,55 @@ int main(int argc, char* argv[]) {
             case 'w': force_auto_width = true;                                break;
             case 'V': printf("cava-viz %s\n", CAVA_VIZ_VERSION); return 0;
             case 'h': print_usage(argv[0]); return 0;
-            default:  print_usage(argv[0]); return 1;
+            // ── Bar mode flags ────────────────────────────────────────────────
+            case OPT_BAR:        bar_mode = true;                            break;
+            case OPT_BAR_FORMAT: {
+                std::string f = optarg;
+                if      (f=="plain")   bar_cfg.format = BarFormat::Plain;
+                else if (f=="waybar")  bar_cfg.format = BarFormat::Waybar;
+                else if (f=="polybar") bar_cfg.format = BarFormat::Polybar;
+                else if (f=="eww")     bar_cfg.format = BarFormat::Eww;
+                else if (f=="raw")     bar_cfg.format = BarFormat::Raw;
+                else if (f=="dzen2")   bar_cfg.format = BarFormat::Dzen2;
+                else if (f=="i3bar")   bar_cfg.format = BarFormat::I3bar;
+                else { fprintf(stderr,"cava-viz: unknown --bar-format '%s'\n",optarg);
+                       return 1; }
+                break;
+            }
+            case OPT_BAR_COUNT:  bar_cfg.count  = std::max(1, std::stoi(optarg)); break;
+            case OPT_BAR_CHARS:  bar_cfg.chars  = optarg;                    break;
+            case OPT_BAR_COLOR:  bar_cfg.color  = optarg;                    break;
+            case OPT_BAR_FPS:    bar_cfg.fps    = std::max(1, std::stoi(optarg)); break;
+            case OPT_BAR_STEREO: {
+                std::string s = optarg;
+                if      (s=="merge") bar_cfg.stereo = BarStereo::Merge;
+                else if (s=="split") bar_cfg.stereo = BarStereo::Split;
+                else { fprintf(stderr,"cava-viz: unknown --bar-stereo '%s'\n",optarg);
+                       return 1; }
+                break;
+            }
+            case OPT_BAR_SEP:    bar_cfg.stereo_sep = optarg;               break;
+            case OPT_BAR_SINK: {
+                std::string s = optarg;
+                if      (s=="stdout") bar_cfg.sink = BarSink::Stdout;
+                else if (s=="fifo")   bar_cfg.sink = BarSink::Fifo;
+                else if (s=="socket") bar_cfg.sink = BarSink::Socket;
+                else { fprintf(stderr,"cava-viz: unknown --bar-sink '%s'\n",optarg);
+                       return 1; }
+                break;
+            }
+            case OPT_BAR_OUT:    bar_cfg.sink_path = optarg;                break;
+            default: print_usage(argv[0]); return 1;
         }
+    }
+
+    // ── Bar mode branch (before ncurses) ──────────────────────────────────────
+    if (bar_mode) {
+        // Inherit stereo setting from config unless --bar-stereo was given.
+        // (bar_cfg.stereo defaults to Merge regardless of cfg.stereo — keeping
+        // them independent lets users choose the stereo output behaviour.)
+        return runBarMode(backend, cli_source, use_mic, sample_rate,
+                          cfg, bar_cfg, g_running);
     }
 
     // ── FFT processor (stack-allocated; never moves) ──────────────────────────
