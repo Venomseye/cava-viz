@@ -1,90 +1,86 @@
-# Maintainer: Your Name <you@example.com>
+# Maintainer: Joshua <your@email.com>
 pkgname=cava-viz
-pkgver=1.1.0
+pkgver=1.2.0
 pkgrel=1
-pkgdesc="Cava-inspired terminal audio visualizer with PipeWire and PulseAudio support"
+pkgdesc="Terminal audio visualizer using the CAVA algorithm with ncurses truecolor gradients"
 arch=('x86_64' 'aarch64')
-url="https://github.com/yourusername/cava-viz"
+url="https://github.com/youruser/cava-viz"
 license=('MIT')
 
-# Runtime dependencies
+# PipeWire and PulseAudio are optional — at least one must be present at runtime.
+# fftw and ncurses are always required.
 depends=(
     'fftw'
     'ncurses'
-    'gcc-libs'
-    'glibc'
 )
-
-# Optional runtime backends
 optdepends=(
+    'pipewire: PipeWire audio backend'
     'libpulse: PulseAudio audio backend'
-    'pipewire: PipeWire audio backend (recommended)'
-    'pipewire-pulse: PulseAudio compatibility via PipeWire'
 )
-
-# Build tools
 makedepends=(
     'cmake'
-    'pkg-config'
     'ninja'
-    # At least one of:
+    'pkg-config'
+    'pipewire'      # build with both backends enabled by default
     'libpulse'
-    'pipewire'
-    'spa-headers'   # libspa-0.2
 )
+source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
+sha256sums=('SKIP')  # replace with actual sha256 after tagging
 
-# ── Source ─────────────────────────────────────────────────────────────────────
-# For a local build from the project directory:
-source=("${pkgname}-${pkgver}.tar.gz")
-sha256sums=('SKIP')
-
-# Alternatively, from git:
-# source=("git+https://github.com/yourusername/cava-viz.git#tag=v${pkgver}")
-# sha256sums=('SKIP')
-
-# ── Build ──────────────────────────────────────────────────────────────────────
 build() {
-    cmake \
-        -B "${srcdir}/build" \
-        -S "${srcdir}/${pkgname}-${pkgver}" \
+    cd "$pkgname-$pkgver"
+    cmake -B build -S . \
         -G Ninja \
         -DCMAKE_BUILD_TYPE=Release \
         -DCMAKE_INSTALL_PREFIX=/usr \
-        -DENABLE_PULSEAUDIO=ON \
         -DENABLE_PIPEWIRE=ON \
+        -DENABLE_PULSEAUDIO=ON \
         -Wno-dev
-
-    cmake --build "${srcdir}/build" --parallel
+    cmake --build build --parallel
 }
 
-# ── Check (optional unit tests) ───────────────────────────────────────────────
-# check() {
-#     cmake --build "${srcdir}/build" --target test
-# }
+check() {
+    cd "$pkgname-$pkgver"
+    # bar_output unit tests (no audio hardware needed)
+    g++ -std=c++17 -Isrc -pthread \
+        -o test_bar_output \
+        tests/test_bar_output.cpp src/bar_output.cpp
+    ./test_bar_output
 
-# ── Package ────────────────────────────────────────────────────────────────────
+    # config round-trip tests
+    g++ -std=c++17 -Isrc \
+        -o test_config \
+        tests/test_config.cpp src/config.cpp
+    ./test_config
+
+    # user theme parser tests
+    g++ -std=c++17 -Isrc \
+        -o test_user_theme \
+        tests/test_user_theme.cpp src/user_theme.cpp src/config.cpp
+    ./test_user_theme
+}
+
 package() {
-    DESTDIR="${pkgdir}" cmake --install "${srcdir}/build"
+    cd "$pkgname-$pkgver"
+    DESTDIR="$pkgdir" cmake --install build
+
+    # Man page
+    install -Dm644 man/cava-viz.1 \
+        "$pkgdir/usr/share/man/man1/cava-viz.1"
+
+    # Shell completions
+    install -Dm644 completions/cava-viz.bash \
+        "$pkgdir/usr/share/bash-completion/completions/viz"
+    install -Dm644 completions/cava-viz.zsh \
+        "$pkgdir/usr/share/zsh/site-functions/_viz"
+    install -Dm644 completions/cava-viz.fish \
+        "$pkgdir/usr/share/fish/vendor_completions.d/viz.fish"
+
+    # Default example theme
+    install -Dm644 examples/ocean.theme \
+        "$pkgdir/usr/share/cava-viz/themes/ocean.theme"
 
     # License
-    install -Dm644 \
-        "${srcdir}/${pkgname}-${pkgver}/LICENSE" \
-        "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE"
-
-    # Optional: desktop/man files if added later
-    # install -Dm644 "${srcdir}/${pkgname}-${pkgver}/doc/${pkgname}.1" \
-    #     "${pkgdir}/usr/share/man/man1/${pkgname}.1"
+    install -Dm644 LICENSE \
+        "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
 }
-
-# ── Local build helper (not standard PKGBUILD, for convenience) ───────────────
-# To build locally without making a tarball, run from the project root:
-#
-#   mkdir -p pkg-build && cd pkg-build
-#   cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr
-#   cmake --build . --parallel
-#   sudo cmake --install .
-#
-# Or via makepkg after creating the tarball:
-#   tar czf cava-viz-1.1.0.tar.gz --transform 's,^,cava-viz-1.1.0/,' \
-#       CMakeLists.txt src/ LICENSE README.md
-#   makepkg -si

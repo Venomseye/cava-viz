@@ -1,0 +1,258 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master, develop]
+    paths-ignore:
+      - "**.md"
+      - "LICENSE"
+      - ".github/ISSUE_TEMPLATE/**"
+  pull_request:
+    branches: [main, master]
+    paths-ignore:
+      - "**.md"
+      - "LICENSE"
+
+# Cancel any in-progress run for the same branch/PR to save CI minutes.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# ── Shared install step ───────────────────────────────────────────────────────
+# Defined as a composite action inline via defaults; actual package lists are
+# duplicated per-job below so each job declares exactly what it needs.
+
+jobs:
+  # ── 1. Format ─────────────────────────────────────────────────────────────────
+  #
+  # On push  → run clang-format, commit and push any changes automatically.
+  #            If changes were committed, downstream jobs are skipped for this
+  #            run (they will execute cleanly on the next push).
+  # On PR    → check only; fail with a helpful annotation if files need
+  #            formatting so the author can fix locally.
+  #
+  format:
+    name: "Format (clang-format)"
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write   # needed for the auto-commit push
+    outputs:
+      committed: ${{ steps.push.outputs.committed }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # Check out the actual branch head so we can push back to it.
+          ref:   ${{ github.head_ref || github.ref_name }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install clang-format
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends clang-format-18
+          sudo update-alternatives \
+            --install /usr/bin/clang-format clang-format \
+                      /usr/bin/clang-format-18 100
+
+      - name: Run clang-format
+        run: |
+          # Format all C++ source and header files except fft_processor.*
+          # (the CAVA algorithm is intentionally kept verbatim).
+          find src tests \( -name "*.cpp" -o -name "*.h" \) \
+            ! -name "fft_processor.*" | sort \
+          | xargs clang-format --style=file -i
+
+      - name: Detect changes
+        id: diff
+        run: |
+          if git diff --quiet; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      # ── Push path (push events only) ─────────────────────────────────────────
+      - name: Commit and push formatted files
+        id: push
+        if: steps.diff.outputs.changed == 'true' && github.event_name == 'push'
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "style: auto-format with clang-format [skip ci]"
+          git push
+          echo "committed=true" >> "$GITHUB_OUTPUT"
+
+      # ── Check path (PR events only) ──────────────────────────────────────────
+      - name: Annotate unformatted files (PR)
+        if: steps.diff.outputs.changed == 'true' && github.event_name == 'pull_request'
+        run: |
+          echo ""
+          echo "The following files are not formatted correctly."
+          echo "Run the commands below, commit, and push:"
+          echo ""
+          git diff --name-only | while read -r f; do
+            echo "  clang-format --style=file -i $f"
+          done
+          echo ""
+          echo "Or format everything at once:"
+          echo "  find src tests ( -name '*.cpp' -o -name '*.h' ) \\"
+          echo "    ! -name 'fft_processor.*' | xargs clang-format --style=file -i"
+          echo ""
+          exit 1
+
+  # ── 2. Lint ───────────────────────────────────────────────────────────────────
+  #
+  # Runs clang-tidy against compile_commands.json.
+  # Skipped if format auto-committed in this run (code will be re-linted on
+  # the next push once the developer pulls the formatting fix).
+  #
+  lint:
+    name: "Lint (clang-tidy)"
+    runs-on: ubuntu-24.04
+    needs: format
+    if: needs.format.outputs.committed != 'true'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref || github.ref_name }}
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            clang-18 clang-tidy-18 \
+            cmake ninja-build \
+            libfftw3-dev libncursesw5-dev \
+            libpipewire-0.3-dev libpulse-dev \
+            pkg-config
+          sudo update-alternatives \
+            --install /usr/bin/clang-tidy clang-tidy \
+                      /usr/bin/clang-tidy-18 100
+
+      - name: Configure (generate compile_commands.json)
+        run: |
+          cmake -B build -S . \
+            -G Ninja \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DCMAKE_CXX_COMPILER=clang++-18 \
+            -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
+            2>&1 | grep -E "Enabled|Disabled|Warning|Error" || true
+
+      - name: Run clang-tidy
+        run: |
+          find src -name "*.cpp" ! -name "fft_processor.cpp" | sort \
+          | xargs clang-tidy -p build --quiet 2>&1 | tee tidy.log
+
+          # Fail if any warnings or errors were emitted.
+          if grep -qE " (error|warning):" tidy.log; then
+            echo ""
+            echo "::error::clang-tidy found issues — see log above."
+            exit 1
+          fi
+          echo "clang-tidy: no issues found."
+
+  # ── 3. Build ──────────────────────────────────────────────────────────────────
+  #
+  # Two configurations:
+  #   • Release  — exactly what users install; binary is uploaded as an artifact
+  #   • Debug    — compiled with AddressSanitizer + UBSan to catch memory errors
+  #
+  build:
+    name: "Build / ${{ matrix.cfg.label }}"
+    runs-on: ubuntu-24.04
+    needs: format
+    if: needs.format.outputs.committed != 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        cfg:
+          - label: Release
+            type:  Release
+            extra: ""
+
+          - label: "Debug+ASan"
+            type:  Debug
+            extra: >-
+              -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer"
+              -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address,undefined"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref || github.ref_name }}
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            cmake ninja-build \
+            libfftw3-dev libncursesw5-dev \
+            libpipewire-0.3-dev libpulse-dev \
+            pkg-config
+
+      - name: Configure
+        run: |
+          cmake -B build -S . \
+            -G Ninja \
+            -DCMAKE_BUILD_TYPE=${{ matrix.cfg.type }} \
+            ${{ matrix.cfg.extra }} \
+            2>&1 | grep -E "Enabled|Disabled|Warning|Error" || true
+
+      - name: Build
+        run: cmake --build build --parallel
+
+      # Upload the Release binary as a workflow artifact (7-day retention).
+      # The release workflow can download it instead of rebuilding from scratch.
+      - name: Upload binary artifact
+        if: matrix.cfg.label == 'Release'
+        uses: actions/upload-artifact@v4
+        with:
+          name: viz-linux-x86_64
+          path: build/viz
+          retention-days: 7
+
+  # ── 4. Test ───────────────────────────────────────────────────────────────────
+  #
+  # Compiles and runs the bar_output unit tests with ASan enabled.
+  # Does not depend on lint so a tidy warning alone won't gate the test run.
+  #
+  test:
+    name: "Tests"
+    runs-on: ubuntu-24.04
+    needs: [format, build]
+    if: |
+      needs.format.outputs.committed != 'true' &&
+      needs.build.result == 'success'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build test binary
+        run: |
+          g++ -std=c++17 -Wall -Wextra -Wpedantic -pthread \
+            -fsanitize=address,undefined \
+            -fno-omit-frame-pointer \
+            -Isrc \
+            -o test_bar_output \
+            tests/test_bar_output.cpp \
+            src/bar_output.cpp
+
+      - name: Run tests
+        run: |
+          ASAN_OPTIONS=detect_leaks=1:abort_on_error=1 \
+          UBSAN_OPTIONS=print_stacktrace=1:abort_on_error=1 \
+          ./test_bar_output
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: test_bar_output
+          retention-days: 3

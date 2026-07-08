@@ -1,0 +1,29 @@
+Configuring...
+-- PulseAudio backend : ENABLED  (17.0-98-gb096)
+-- PipeWire backend   : ENABLED  (1.6.7)
+  ✓ Configured (generator: Ninja)
+
+Building...
+[3/21] Building CXX object CMakeFiles/viz.dir/src/audio_utils.cpp.o
+FAILED: [code=1] CMakeFiles/viz.dir/src/audio_utils.cpp.o 
+/usr/bin/c++ -DCAVA_VIZ_VERSION=\"1.2.0\" -DHAVE_PIPEWIRE -DHAVE_PULSEAUDIO -I/home/dragon/Downloads/cava-viz/src -isystem /usr/include/pipewire-0.3 -isystem /usr/include/spa-0.2 -O3 -march=native -DNDEBUG -std=c++17 -Wall -Wextra -Wpedantic -Wno-unused-parameter -D_DEFAULT_SOURCE -D_XOPEN_SOURCE=600 -D_REENTRANT -fno-strict-aliasing -fno-strict-overflow -MD -MT CMakeFiles/viz.dir/src/audio_utils.cpp.o -MF CMakeFiles/viz.dir/src/audio_utils.cpp.o.d -o CMakeFiles/viz.dir/src/audio_utils.cpp.o -c /home/dragon/Downloads/cava-viz/src/audio_utils.cpp
+/home/dragon/Downloads/cava-viz/src/audio_utils.cpp: In function ‘std::vector<std::__cxx11::basic_string<char> > listSources()’:
+/home/dragon/Downloads/cava-viz/src/audio_utils.cpp:40:26: error: ‘strchr’ is not a member of ‘std’; did you mean ‘strchr’?
+   40 |         char* tab = std::strchr(buf, '\t');
+      |                          ^~~~~~
+In file included from /usr/include/spa-0.2/spa/utils/defs.h:11,
+                 from /usr/include/spa-0.2/spa/support/plugin.h:10,
+                 from /usr/include/pipewire-0.3/pipewire/pipewire.h:8,
+                 from /home/dragon/Downloads/cava-viz/src/pipewire_capture.h:9,
+                 from /home/dragon/Downloads/cava-viz/src/audio_utils.cpp:7:
+/usr/include/string.h:254:1: note: ‘strchr’ declared here
+  254 | strchr (const char *__s, int __c) __THROW
+      | ^~~~~~
+/home/dragon/Downloads/cava-viz/src/audio_utils.cpp:42:26: error: ‘strchr’ is not a member of ‘std’; did you mean ‘strchr’?
+   42 |         char* end = std::strchr(tab + 1, '\t');
+      |                          ^~~~~~
+/usr/include/string.h:254:1: note: ‘strchr’ declared here
+  254 | strchr (const char *__s, int __c) __THROW
+      | ^~~~~~
+[14/21] Building CXX object CMakeFiles/test_config.dir/src/config.cpp.o
+ninja: build stopped: subcommand failed.

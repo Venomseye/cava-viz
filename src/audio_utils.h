@@ -4,30 +4,37 @@
 #include "fft_processor.h"
 #include <memory>
 #include <string>
+#include <vector>
 
-// ── Shell utility
-// ─────────────────────────────────────────────────────────────
+// ── Shell utility ─────────────────────────────────────────────────────────────
 
 /// Run a shell command and return the first line of stdout (trimmed).
 /// Returns "" on failure or empty output.
-std::string runCmd(const char *cmd);
+std::string runCmd(const char* cmd);
 
-// ── Monitor detection
-// ─────────────────────────────────────────────────────────
+// ── Source enumeration ────────────────────────────────────────────────────────
+
+/// Return all PulseAudio/PipeWire source names visible to pactl.
+/// Returns an empty vector when pactl is not on PATH or produces no output.
+std::vector<std::string> listSources();
+
+/// Print a formatted source table to stdout (for --list-sources).
+/// Marks the default monitor and the last-used source from cfg.
+void printSources(const Config& cfg);
+
+// ── Monitor detection ─────────────────────────────────────────────────────────
 
 /// Auto-detect the default PulseAudio/PipeWire monitor source via pactl.
 /// Result is cached and re-queried at most once every 5 seconds.
 std::string detectMonitor();
 
-// ── Audio backend factory
-// ─────────────────────────────────────────────────────
+// ── Audio backend factory ─────────────────────────────────────────────────────
 
 /// Try to init and start one audio backend.
-/// Returns nullptr if the backend isn't compiled in, init fails, or start
-/// fails.
-std::unique_ptr<AudioCapture> makeAudio(const std::string &backend,
-                                        const std::string &source, int sr,
-                                        int ch, AudioCapture::AudioCallback cb);
+/// Returns nullptr if the backend isn't compiled in, init fails, or start fails.
+std::unique_ptr<AudioCapture> makeAudio(
+    const std::string& backend, const std::string& source,
+    int sr, int ch, AudioCapture::AudioCallback cb);
 
 // ── Audio startup with fallback chain ────────────────────────────────────────
 
@@ -39,14 +46,14 @@ std::unique_ptr<AudioCapture> makeAudio(const std::string &backend,
 ///   5. empty source (let the backend pick)
 ///
 /// On success, sets audio, active_source, bname, and persists cfg.last_source.
-void doStartAudio(const std::string &backend, const std::string &cli_source,
-                  bool use_mic, int sample_rate, int channels,
-                  FFTProcessor &fft, Config &cfg,
-                  std::unique_ptr<AudioCapture> &audio,
-                  std::string &active_source, std::string &bname);
+void doStartAudio(
+    const std::string& backend, const std::string& cli_source,
+    bool use_mic, int sample_rate, int channels,
+    FFTProcessor& fft, Config& cfg,
+    std::unique_ptr<AudioCapture>& audio,
+    std::string& active_source, std::string& bname);
 
-// ── FFT configuration
-// ─────────────────────────────────────────────────────────
+// ── FFT configuration ─────────────────────────────────────────────────────────
 
 /// Apply all FFT-related Config knobs to a live FFTProcessor instance.
-void applyFFTConfig(FFTProcessor &fft, const Config &cfg);
+void applyFFTConfig(FFTProcessor& fft, const Config& cfg);

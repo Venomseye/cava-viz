@@ -120,8 +120,66 @@ endif()
 include(GNUInstallDirs)
 install(TARGETS viz DESTINATION ${CMAKE_INSTALL_BINDIR})
 
+# Man page
+install(FILES man/cava-viz.1
+    DESTINATION ${CMAKE_INSTALL_MANDIR}/man1)
+
+# Shell completions
+install(FILES completions/cava-viz.bash
+    DESTINATION ${CMAKE_INSTALL_DATADIR}/bash-completion/completions
+    RENAME viz)
+install(FILES completions/cava-viz.zsh
+    DESTINATION ${CMAKE_INSTALL_DATADIR}/zsh/site-functions
+    RENAME _viz)
+install(FILES completions/cava-viz.fish
+    DESTINATION ${CMAKE_INSTALL_DATADIR}/fish/vendor_completions.d
+    RENAME viz.fish)
+
+# Example user themes
+install(DIRECTORY examples/
+    DESTINATION ${CMAKE_INSTALL_DATADIR}/cava-viz/themes
+    FILES_MATCHING PATTERN "*.theme")
+
+# ── Tests ─────────────────────────────────────────────────────────────────────
+option(BUILD_TESTS "Build unit tests" ON)
+if(BUILD_TESTS)
+    enable_testing()
+
+    # bar_output tests — no system libraries needed
+    add_executable(test_bar_output
+        tests/test_bar_output.cpp
+        src/bar_output.cpp)
+    target_include_directories(test_bar_output PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    target_compile_options(test_bar_output PRIVATE -Wall -Wextra -Wpedantic)
+    set_target_properties(test_bar_output PROPERTIES
+        CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON)
+    add_test(NAME bar_output COMMAND test_bar_output)
+
+    # config round-trip tests
+    add_executable(test_config
+        tests/test_config.cpp
+        src/config.cpp)
+    target_include_directories(test_config PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    target_compile_options(test_config PRIVATE -Wall -Wextra -Wpedantic)
+    set_target_properties(test_config PROPERTIES
+        CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON)
+    add_test(NAME config COMMAND test_config)
+
+    # user theme parser tests
+    add_executable(test_user_theme
+        tests/test_user_theme.cpp
+        src/user_theme.cpp
+        src/config.cpp)
+    target_include_directories(test_user_theme PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    target_compile_options(test_user_theme PRIVATE -Wall -Wextra -Wpedantic)
+    set_target_properties(test_user_theme PROPERTIES
+        CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON)
+    add_test(NAME user_theme COMMAND test_user_theme)
+endif()
+
 # ── Summary ────────────────────────────────────────────────────────────────────
 message(STATUS "--------------------------------------------")
 message(STATUS "Build type  : ${CMAKE_BUILD_TYPE}")
 message(STATUS "Install dir : ${CMAKE_INSTALL_PREFIX}")
+message(STATUS "Tests       : ${BUILD_TESTS}")
 message(STATUS "--------------------------------------------")

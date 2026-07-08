@@ -1,0 +1,345 @@
+.TH CAVA\-VIZ 1 "2025" "cava-viz 1.2.0" "User Commands"
+.SH NAME
+viz \- terminal audio visualizer using the CAVA FFT algorithm
+.SH SYNOPSIS
+.B viz
+[\fIOPTIONS\fR]
+.SH DESCRIPTION
+.B viz
+is a real-time terminal audio visualizer built on the CAVA algorithm.
+It captures audio from a PipeWire or PulseAudio monitor source, runs a
+dual-channel FFT with Monstercat smoothing and autosensitivity, and renders
+animated bar graphs in ncurses with truecolor gradients.
+.PP
+User-defined themes can be placed in
+.I ~/.config/cava-viz/themes/
+as
+.I .theme
+files. The configuration file is reloaded live whenever it changes on disk,
+or on receipt of
+.BR SIGHUP .
+.SH OPTIONS
+.SS General
+.TP
+.BI \-b " backend"
+Audio backend to use.
+.I backend
+must be one of
+.BR auto ,
+.BR pipewire ,
+or
+.BR pulse .
+Default:
+.BR auto .
+.TP
+.BI \-s " source"
+Explicit capture device name (as listed by
+.BR --list-sources ).
+Bypasses auto-detection entirely.
+.TP
+.B \-M
+Capture from the default microphone instead of a monitor source.
+.TP
+.BI \-r " Hz"
+PCM sample rate in Hz. Default:
+.BR 44100 .
+.TP
+.BI \-t " index"
+Starting theme index.
+Built-in themes occupy indices 0\(en11; user themes follow in alphabetical
+filename order starting at index 12.
+.TP
+.BI \-f " fps"
+Target frame rate. Accepted range: 10\(en240. Default:
+.BR 60 .
+.TP
+.B \-w
+Automatically compute bar width to fill the terminal at startup.
+.TP
+.B \-\-list\-sources
+Print all available PipeWire/PulseAudio sources and exit.
+Indicates the default monitor and the last-used source.
+.TP
+.B \-\-check
+Validate the configuration file, report user themes, and check audio source
+availability. Exits with status 0 on success, 1 on failure.
+.TP
+.B \-V
+Print the version string and exit.
+.TP
+.B \-h
+Print a brief usage summary and exit.
+.SS Bar mode (headless output)
+Bar mode replaces the ncurses display with a stream of formatted bar strings
+written to stdout, a FIFO, or a Unix socket. Designed for embedding in
+status bars (Waybar, Polybar, lemonbar, eww, etc.).
+.TP
+.B \-\-bar
+Enable bar mode. No ncurses is initialised.
+.TP
+.BI \-\-bar\-format " fmt"
+Output format.
+.I fmt
+must be one of:
+.RS
+.TP
+.B plain
+Raw UTF-8 block characters, one line per frame. Works with eww, any shell script.
+.TP
+.B waybar
+JSON with pango
+.B <span color='#hex'>
+markup. Use with Waybar's
+.B "return-type": "json"
+and
+.BR "interval": "once" .
+.TP
+.B polybar
+.B %{F#hex}...%{F-}
+color tags. Also compatible with lemonbar.
+.TP
+.B eww
+Identical to
+.BR plain .
+eww applies colours via CSS rather than inline tags.
+.TP
+.B raw
+Space-separated floats in [0,\ 1], one per bar. Intended for custom consumers.
+.TP
+.B dzen2
+.B ^fg(#hex)...^fg()
+tags for dzen2.
+.TP
+.B i3bar
+.B {"full_text":"...","color":"#hex"}
+JSON block for i3bar.
+.RE
+.TP
+.BI \-\-bar\-count " n"
+Number of bars per channel. Default:
+.BR 10 .
+.TP
+.BI \-\-bar\-chars " string"
+UTF-8 string of level characters, ordered from lowest to highest.
+Default:
+.BR \[u2581]\[u2582]\[u2583]\[u2584]\[u2585]\[u2586]\[u2587]\[u2588] .
+Any count \[>=]\ 2 is accepted; the levels are distributed evenly.
+.TP
+.BI \-\-bar\-color " #RRGGBB"
+Accent color applied by tagged formats (waybar, polybar, dzen2, i3bar).
+Default:
+.BR #00ffcc .
+.TP
+.BI \-\-bar\-fps " n"
+Output frame rate in bar mode. Lower values reduce CPU usage for status bars
+that don't need 60\|fps. Default:
+.BR 15 .
+.TP
+.BI \-\-bar\-stereo " mode"
+Stereo handling.
+.I mode
+is either
+.B merge
+(average L+R into one bar string, default) or
+.B split
+(emit L\|<sep>\|R with separate channel strings).
+.TP
+.BI \-\-bar\-sep " string"
+Separator used between channels in
+.B split
+stereo mode. Default:
+.BR "\ |\ " .
+.TP
+.BI \-\-bar\-sink " type"
+Output sink.
+.I type
+is one of
+.B stdout
+(default),
+.B fifo
+(named pipe), or
+.B socket
+(Unix domain socket server).
+.TP
+.BI \-\-bar\-out " path"
+Filesystem path for the
+.B fifo
+or
+.B socket
+sink.
+Required when
+.B \-\-bar\-sink
+is not
+.BR stdout .
+.SH KEYS
+These keys are active in terminal (ncurses) mode only.
+.TS
+tab(|);
+l l.
+q|Quit
+t|Cycle to next theme (built-in then user-defined)
+g|Cycle gap width: 0 \[->] 1 \[->] 2 \[->] 0
+] / [|Increase / decrease bar width
+UP / DOWN|Adjust sensitivity manually
+a|Toggle autosensitivity
+s|Toggle stereo / mono
+h|Toggle HUD pin (always visible vs auto-hide)
+c|Toggle colour cycle (slow hue rotation)
+v|Toggle per-bar colour (maps colour to bar position)
+w|Toggle A-weighting (IEC 61672 perceptual curve)
+n|Toggle auto-mono (collapse stereo when L \[~=] R)
+.TE
+.SH CONFIGURATION
+The configuration file is created on first run at:
+.PP
+.RS
+.I ${XDG_CONFIG_HOME:-~/.config}/cava-viz/config
+.RE
+.PP
+Edit it while the visualizer is running; changes are reloaded instantly via
+inotify. Sending
+.B SIGHUP
+also triggers an immediate reload:
+.PP
+.RS
+.B kill \-HUP $(pgrep viz)
+.RE
+.PP
+Key-value format with
+.B #
+comments. All keys and their defaults:
+.TS
+tab(|);
+l l l.
+Key|Default|Description
+_
+theme|0|Theme index (0\(en11 built-in; 12+ user)
+bar_width|2|Bar width in columns (1\(en8)
+gap_width|1|Gap between bars (0\(en2)
+hud_pinned|0|Always show HUD overlay
+colour_cycle|0|Rotate gradient hue over time
+per_bar_colour|0|Map colour to bar position
+stereo|1|Stereo capture (0 = mono)
+high_cutoff|10000|Upper frequency limit in Hz
+gravity|1.00|Bar fall speed (0.1\(en5.0)
+monstercat|1.50|Bar spread smoothing (0\(en5.0)
+rise_factor|0.90|Attack smoothing (0\(en0.95)
+bass_smooth|0.10|Extra bass smoothing (0\(en1.0)
+a_weighting|0|IEC 61672 perceptual weighting
+noise_gate|0.020|Bars below this snap to zero
+auto_mono|0|Auto-collapse stereo when correlated
+sensitivity|1.00|Manual sensitivity multiplier
+auto_sens|1|Automatic sensitivity
+fps|60|Target frame rate (10\(en240)
+.TE
+.SH USER THEMES
+Place
+.I .theme
+files in:
+.PP
+.RS
+.I ${XDG_CONFIG_HOME:-~/.config}/cava-viz/themes/
+.RE
+.PP
+Files are loaded in alphabetical filename order and cycle after the
+twelve built-in themes. Adding, editing, or removing a
+.I .theme
+file reloads all user themes instantly without restarting.
+.PP
+Format:
+.PP
+.RS
+.nf
+# Optional comment
+name   = My Theme
+
+stop_0 = 0.00  #003366
+stop_1 = 0.50  #0088cc
+stop_2 = 1.00  #00ffcc
+.fi
+.RE
+.PP
+Rules:
+.RS
+.IP \[bu] 2
+.I pos
+runs from 0.0 (bar bottom) to 1.0 (bar top).
+.IP \[bu]
+Colors are
+.I #RRGGBB
+hex (upper or lowercase).
+.IP \[bu]
+2\(en8 stops required; stops may appear in any order.
+.IP \[bu]
+.B name
+is optional and defaults to the filename without
+.IR .theme .
+.IP \[bu]
+Lines starting with
+.B #
+are comments.
+.RE
+.SH FILES
+.TP
+.I ${XDG_CONFIG_HOME:-~/.config}/cava-viz/config
+Main configuration file.
+.TP
+.I ${XDG_CONFIG_HOME:-~/.config}/cava-viz/state
+Persists the last-used audio source across restarts.
+.TP
+.I ${XDG_CONFIG_HOME:-~/.config}/cava-viz/themes/
+Directory for user-defined
+.I .theme
+files.
+.SH SIGNALS
+.TP
+.B SIGINT, SIGTERM
+Quit cleanly, restoring the terminal.
+.TP
+.B SIGHUP
+Reload the configuration file and user themes immediately.
+.TP
+.B SIGWINCH
+Redraw at the new terminal size.
+.SH EXAMPLES
+.TP
+Auto-detect backend and monitor source:
+.B viz
+.TP
+Force PipeWire with a specific source:
+.B viz \-b pipewire \-s alsa_output.pci-0000_00_1f.3.monitor
+.TP
+Microphone visualizer, Aurora theme, 30\|fps:
+.B viz \-M \-t 6 \-f 30
+.TP
+Waybar integration (add to Waybar config):
+.nf
+"custom/viz": {
+    "exec": "viz --bar --bar-format waybar --bar-count 12",
+    "return-type": "json",
+    "interval": "once",
+    "restart-interval": 5
+}
+.fi
+.TP
+FIFO for tmux status bar:
+.nf
+viz --bar --bar-sink fifo --bar-out /tmp/viz.pipe &
+# In tmux.conf:
+set \-g status\-right "#(cat /tmp/viz.pipe)"
+.fi
+.TP
+List available audio sources:
+.B viz \-\-list\-sources
+.TP
+Validate configuration:
+.B viz \-\-check
+.SH SEE ALSO
+.BR pactl (1),
+.BR pipewire (1),
+.BR pulseaudio (1),
+.BR waybar (5)
+.SH LICENSE
+MIT License. See
+.I /usr/share/licenses/cava-viz/LICENSE
+or the project repository.
