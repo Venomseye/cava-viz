@@ -21,11 +21,6 @@
 ///   cfg         — full config (FFT knobs read from here; last_source updated)
 ///   bar_cfg     — bar count, format, sink, colours, fps, stereo mode
 ///   running     — shared stop flag (set false by the signal handler in main)
-int runBarMode(
-    const std::string& backend,
-    const std::string& cli_source,
-    bool               use_mic,
-    int                sample_rate,
-    Config&            cfg,
-    const BarOutputConfig& bar_cfg,
-    std::atomic<bool>& running);
+int runBarMode(const std::string &backend, const std::string &cli_source,
+               bool use_mic, int sample_rate, Config &cfg,
+               const BarOutputConfig &bar_cfg, std::atomic<bool> &running);
