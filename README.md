@@ -45,6 +45,7 @@ At least one audio backend must be present.
 ```bash
 git clone https://github.com/Venomseye/cava-viz.git
 cd cava-viz
+chmod +x install.sh uninstall.sh
 ./install.sh
 ```
 
