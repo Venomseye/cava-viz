@@ -26,30 +26,6 @@ _viz_completions() {
         -f|--fps)
             COMPREPLY=( $(compgen -W "15 30 60 120" -- "$cur") )
             return ;;
-        --bar-format)
-            COMPREPLY=( $(compgen -W "$formats" -- "$cur") )
-            return ;;
-        --bar-count)
-            COMPREPLY=( $(compgen -W "5 8 10 12 16 20" -- "$cur") )
-            return ;;
-        --bar-fps)
-            COMPREPLY=( $(compgen -W "10 15 20 30" -- "$cur") )
-            return ;;
-        --bar-stereo)
-            COMPREPLY=( $(compgen -W "$stereo_modes" -- "$cur") )
-            return ;;
-        --bar-sink)
-            COMPREPLY=( $(compgen -W "$sinks" -- "$cur") )
-            return ;;
-        --bar-out)
-            _filedir
-            return ;;
-        --bar-color)
-            # No completion — free-form #RRGGBB
-            return ;;
-        --bar-chars|--bar-sep)
-            # No completion — free-form strings
-            return ;;
     esac
 
     # Long and short options
@@ -65,16 +41,7 @@ _viz_completions() {
         --check
         -V --version
         -h --help
-        --bar
-        --bar-format
-        --bar-count
-        --bar-chars
-        --bar-color
-        --bar-fps
-        --bar-stereo
-        --bar-sep
-        --bar-sink
-        --bar-out
+
     '
     COMPREPLY=( $(compgen -W "$opts" -- "$cur") )
 }

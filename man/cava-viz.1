@@ -69,108 +69,6 @@ Print the version string and exit.
 .TP
 .B \-h
 Print a brief usage summary and exit.
-.SS Bar mode (headless output)
-Bar mode replaces the ncurses display with a stream of formatted bar strings
-written to stdout, a FIFO, or a Unix socket. Designed for embedding in
-status bars (Waybar, Polybar, lemonbar, eww, etc.).
-.TP
-.B \-\-bar
-Enable bar mode. No ncurses is initialised.
-.TP
-.BI \-\-bar\-format " fmt"
-Output format.
-.I fmt
-must be one of:
-.RS
-.TP
-.B plain
-Raw UTF-8 block characters, one line per frame. Works with eww, any shell script.
-.TP
-.B waybar
-JSON with pango
-.B <span color='#hex'>
-markup. Use with Waybar's
-.B "return-type": "json"
-and
-.BR "interval": "once" .
-.TP
-.B polybar
-.B %{F#hex}...%{F-}
-color tags. Also compatible with lemonbar.
-.TP
-.B eww
-Identical to
-.BR plain .
-eww applies colours via CSS rather than inline tags.
-.TP
-.B raw
-Space-separated floats in [0,\ 1], one per bar. Intended for custom consumers.
-.TP
-.B dzen2
-.B ^fg(#hex)...^fg()
-tags for dzen2.
-.TP
-.B i3bar
-.B {"full_text":"...","color":"#hex"}
-JSON block for i3bar.
-.RE
-.TP
-.BI \-\-bar\-count " n"
-Number of bars per channel. Default:
-.BR 10 .
-.TP
-.BI \-\-bar\-chars " string"
-UTF-8 string of level characters, ordered from lowest to highest.
-Default:
-.BR \[u2581]\[u2582]\[u2583]\[u2584]\[u2585]\[u2586]\[u2587]\[u2588] .
-Any count \[>=]\ 2 is accepted; the levels are distributed evenly.
-.TP
-.BI \-\-bar\-color " #RRGGBB"
-Accent color applied by tagged formats (waybar, polybar, dzen2, i3bar).
-Default:
-.BR #00ffcc .
-.TP
-.BI \-\-bar\-fps " n"
-Output frame rate in bar mode. Lower values reduce CPU usage for status bars
-that don't need 60\|fps. Default:
-.BR 15 .
-.TP
-.BI \-\-bar\-stereo " mode"
-Stereo handling.
-.I mode
-is either
-.B merge
-(average L+R into one bar string, default) or
-.B split
-(emit L\|<sep>\|R with separate channel strings).
-.TP
-.BI \-\-bar\-sep " string"
-Separator used between channels in
-.B split
-stereo mode. Default:
-.BR "\ |\ " .
-.TP
-.BI \-\-bar\-sink " type"
-Output sink.
-.I type
-is one of
-.B stdout
-(default),
-.B fifo
-(named pipe), or
-.B socket
-(Unix domain socket server).
-.TP
-.BI \-\-bar\-out " path"
-Filesystem path for the
-.B fifo
-or
-.B socket
-sink.
-Required when
-.B \-\-bar\-sink
-is not
-.BR stdout .
 .SH KEYS
 These keys are active in terminal (ncurses) mode only.
 .TS
@@ -312,23 +210,6 @@ Force PipeWire with a specific source:
 Microphone visualizer, Aurora theme, 30\|fps:
 .B viz \-M \-t 6 \-f 30
 .TP
-Waybar integration (add to Waybar config):
-.nf
-"custom/viz": {
-    "exec": "viz --bar --bar-format waybar --bar-count 12",
-    "return-type": "json",
-    "interval": "once",
-    "restart-interval": 5
-}
-.fi
-.TP
-FIFO for tmux status bar:
-.nf
-viz --bar --bar-sink fifo --bar-out /tmp/viz.pipe &
-# In tmux.conf:
-set \-g status\-right "#(cat /tmp/viz.pipe)"
-.fi
-.TP
 List available audio sources:
 .B viz \-\-list\-sources
 .TP
@@ -337,8 +218,7 @@ Validate configuration:
 .SH SEE ALSO
 .BR pactl (1),
 .BR pipewire (1),
-.BR pulseaudio (1),
-.BR waybar (5)
+.BR pulseaudio (1)
 .SH LICENSE
 MIT License. See
 .I /usr/share/licenses/cava-viz/LICENSE

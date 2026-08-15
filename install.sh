@@ -158,7 +158,7 @@ ok "Build complete."
 if [ "$RUN_TESTS" -eq 1 ]; then
     header "Running tests..."
     failed=0
-    for t in test_bar_output test_config test_user_theme; do
+    for t in test_config test_user_theme; do
         BIN="$BUILD_DIR/$t"
         if [ -x "$BIN" ]; then
             info "Running $t ..."
@@ -200,7 +200,7 @@ echo ""
 echo -e "    ${C_GRN}viz${C_RST}                           # run the visualizer"
 echo -e "    ${C_GRN}viz --list-sources${C_RST}            # see available audio sources"
 echo -e "    ${C_GRN}viz --check${C_RST}                   # validate config and setup"
-echo -e "    ${C_GRN}viz --bar --bar-format waybar${C_RST}  # headless bar mode"
+
 echo ""
 echo "  Keybindings:"
 echo "    t      = cycle theme        ] / [  = bar width"

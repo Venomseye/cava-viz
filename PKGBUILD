@@ -41,11 +41,6 @@ build() {
 
 check() {
     cd "$pkgname-$pkgver"
-    # bar_output unit tests (no audio hardware needed)
-    g++ -std=c++17 -Isrc -pthread \
-        -o test_bar_output \
-        tests/test_bar_output.cpp src/bar_output.cpp
-    ./test_bar_output
 
     # config round-trip tests
     g++ -std=c++17 -Isrc \

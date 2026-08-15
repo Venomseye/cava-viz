@@ -13,29 +13,17 @@ on:
       - "**.md"
       - "LICENSE"
 
-# Cancel any in-progress run for the same branch/PR to save CI minutes.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
-# ── Shared install step ───────────────────────────────────────────────────────
-# Defined as a composite action inline via defaults; actual package lists are
-# duplicated per-job below so each job declares exactly what it needs.
-
 jobs:
-  # ── 1. Format ─────────────────────────────────────────────────────────────────
-  #
-  # On push  → run clang-format, commit and push any changes automatically.
-  #            If changes were committed, downstream jobs are skipped for this
-  #            run (they will execute cleanly on the next push).
-  # On PR    → check only; fail with a helpful annotation if files need
-  #            formatting so the author can fix locally.
-  #
+  # ── 1. Format ────────────────────────────────────────────────────────────────
   format:
     name: "Format (clang-format)"
     runs-on: ubuntu-24.04
     permissions:
-      contents: write   # needed for the auto-commit push
+      contents: write
     outputs:
       committed: ${{ steps.push.outputs.committed }}
 
@@ -43,7 +31,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          # Check out the actual branch head so we can push back to it.
           ref:   ${{ github.head_ref || github.ref_name }}
           token: ${{ secrets.GITHUB_TOKEN }}
 
@@ -57,8 +44,6 @@ jobs:
 
       - name: Run clang-format
         run: |
-          # Format all C++ source and header files except fft_processor.*
-          # (the CAVA algorithm is intentionally kept verbatim).
           find src tests \( -name "*.cpp" -o -name "*.h" \) \
             ! -name "fft_processor.*" | sort \
           | xargs clang-format --style=file -i
@@ -72,7 +57,6 @@ jobs:
             echo "changed=true" >> "$GITHUB_OUTPUT"
           fi
 
-      # ── Push path (push events only) ─────────────────────────────────────────
       - name: Commit and push formatted files
         id: push
         if: steps.diff.outputs.changed == 'true' && github.event_name == 'push'
@@ -84,7 +68,6 @@ jobs:
           git push
           echo "committed=true" >> "$GITHUB_OUTPUT"
 
-      # ── Check path (PR events only) ──────────────────────────────────────────
       - name: Annotate unformatted files (PR)
         if: steps.diff.outputs.changed == 'true' && github.event_name == 'pull_request'
         run: |
@@ -96,18 +79,9 @@ jobs:
             echo "  clang-format --style=file -i $f"
           done
           echo ""
-          echo "Or format everything at once:"
-          echo "  find src tests ( -name '*.cpp' -o -name '*.h' ) \\"
-          echo "    ! -name 'fft_processor.*' | xargs clang-format --style=file -i"
-          echo ""
           exit 1
 
-  # ── 2. Lint ───────────────────────────────────────────────────────────────────
-  #
-  # Runs clang-tidy against compile_commands.json.
-  # Skipped if format auto-committed in this run (code will be re-linted on
-  # the next push once the developer pulls the formatting fix).
-  #
+  # ── 2. Lint ──────────────────────────────────────────────────────────────────
   lint:
     name: "Lint (clang-tidy)"
     runs-on: ubuntu-24.04
@@ -146,21 +120,13 @@ jobs:
         run: |
           find src -name "*.cpp" ! -name "fft_processor.cpp" | sort \
           | xargs clang-tidy -p build --quiet 2>&1 | tee tidy.log
-
-          # Fail if any warnings or errors were emitted.
           if grep -qE " (error|warning):" tidy.log; then
-            echo ""
             echo "::error::clang-tidy found issues — see log above."
             exit 1
           fi
           echo "clang-tidy: no issues found."
 
-  # ── 3. Build ──────────────────────────────────────────────────────────────────
-  #
-  # Two configurations:
-  #   • Release  — exactly what users install; binary is uploaded as an artifact
-  #   • Debug    — compiled with AddressSanitizer + UBSan to catch memory errors
-  #
+  # ── 3. Build ─────────────────────────────────────────────────────────────────
   build:
     name: "Build / ${{ matrix.cfg.label }}"
     runs-on: ubuntu-24.04
@@ -206,8 +172,6 @@ jobs:
       - name: Build
         run: cmake --build build --parallel
 
-      # Upload the Release binary as a workflow artifact (7-day retention).
-      # The release workflow can download it instead of rebuilding from scratch.
       - name: Upload binary artifact
         if: matrix.cfg.label == 'Release'
         uses: actions/upload-artifact@v4
@@ -216,43 +180,41 @@ jobs:
           path: build/viz
           retention-days: 7
 
-  # ── 4. Test ───────────────────────────────────────────────────────────────────
-  #
-  # Compiles and runs the bar_output unit tests with ASan enabled.
-  # Does not depend on lint so a tidy warning alone won't gate the test run.
-  #
+  # ── 4. Test ──────────────────────────────────────────────────────────────────
   test:
-    name: "Tests"
+    name: "Tests / ${{ matrix.suite.name }}"
     runs-on: ubuntu-24.04
     needs: [format, build]
     if: |
       needs.format.outputs.committed != 'true' &&
       needs.build.result == 'success'
+    strategy:
+      fail-fast: false
+      matrix:
+        suite:
+          - name: config
+            src:  "tests/test_config.cpp src/config.cpp"
+            bin:  test_config
+
+          - name: user_theme
+            src:  "tests/test_user_theme.cpp src/user_theme.cpp src/config.cpp"
+            bin:  test_user_theme
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Build test binary
+      - name: Build ${{ matrix.suite.name }} tests
         run: |
-          g++ -std=c++17 -Wall -Wextra -Wpedantic -pthread \
+          g++ -std=c++17 -Wall -Wextra -Wpedantic \
             -fsanitize=address,undefined \
             -fno-omit-frame-pointer \
             -Isrc \
-            -o test_bar_output \
-            tests/test_bar_output.cpp \
-            src/bar_output.cpp
+            -o ${{ matrix.suite.bin }} \
+            ${{ matrix.suite.src }}
 
-      - name: Run tests
+      - name: Run ${{ matrix.suite.name }} tests
         run: |
           ASAN_OPTIONS=detect_leaks=1:abort_on_error=1 \
           UBSAN_OPTIONS=print_stacktrace=1:abort_on_error=1 \
-          ./test_bar_output
-
-      - name: Upload test results
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: test-results
-          path: test_bar_output
-          retention-days: 3
+          ./${{ matrix.suite.bin }}

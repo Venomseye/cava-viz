@@ -37,8 +37,6 @@ set(CORE_SOURCES
     src/config.cpp
     src/user_theme.cpp
     src/audio_utils.cpp
-    src/bar_output.cpp
-    src/bar_mode.cpp
 )
 
 add_executable(viz ${CORE_SOURCES})
@@ -144,16 +142,6 @@ install(DIRECTORY examples/
 option(BUILD_TESTS "Build unit tests" ON)
 if(BUILD_TESTS)
     enable_testing()
-
-    # bar_output tests — no system libraries needed
-    add_executable(test_bar_output
-        tests/test_bar_output.cpp
-        src/bar_output.cpp)
-    target_include_directories(test_bar_output PRIVATE ${CMAKE_SOURCE_DIR}/src)
-    target_compile_options(test_bar_output PRIVATE -Wall -Wextra -Wpedantic)
-    set_target_properties(test_bar_output PROPERTIES
-        CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON)
-    add_test(NAME bar_output COMMAND test_bar_output)
 
     # config round-trip tests
     add_executable(test_config

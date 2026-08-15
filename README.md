@@ -19,7 +19,6 @@ A terminal audio visualizer built on the [CAVA](https://github.com/karlstav/cava
 - **User-defined themes** — write a `.theme` file with hex color stops; hot-reloaded while running
 - **Stereo visualization** — side-by-side left/right channels with mono collapse
 - **Live config reload** — edit the config or user themes while running; inotify reacts instantly
-- **Headless bar mode** — output formatted bars to stdout, a FIFO, or a Unix socket for status bars
 - **Low CPU footprint** — ncurses dirty-region rendering, `clock_nanosleep` frame timing, throttled color rebuilds
 - **Dual audio backend** — PipeWire and PulseAudio; auto-selects, falls back gracefully, reconnects on device loss
 
@@ -44,9 +43,8 @@ At least one audio backend must be present.
 ## Installation
 
 ```bash
-git clone https://github.com/venomseye/cava-viz.git
+git clone https://github.com/youruser/cava-viz.git
 cd cava-viz
-chmod +x install.sh uninstall.sh
 ./install.sh
 ```
 
@@ -253,89 +251,6 @@ stop_3 = 1.00  #ff79c6
 
 ---
 
-## Bar Mode (Status Bar Integration)
-
-`--bar` replaces the ncurses display with a stream of formatted lines — no terminal is touched. Designed for Waybar, Polybar, eww, tmux, and any script.
-
-```bash
-viz --bar [--bar-format <fmt>] [--bar-count <n>] [--bar-color <#hex>]
-          [--bar-fps <n>] [--bar-stereo <merge|split>]
-          [--bar-sink <stdout|fifo|socket>] [--bar-out <path>]
-```
-
-| Flag | Description | Default |
-|---|---|---|
-| `--bar-format` | `plain` `waybar` `polybar` `eww` `raw` `dzen2` `i3bar` | `plain` |
-| `--bar-count` | Bars per channel | `10` |
-| `--bar-chars` | UTF-8 level chars | `▁▂▃▄▅▆▇█` |
-| `--bar-color` | Accent color `#RRGGBB` | `#00ffcc` |
-| `--bar-fps` | Output rate | `15` |
-| `--bar-stereo` | `merge` or `split` | `merge` |
-| `--bar-sep` | Separator for split stereo | ` \| ` |
-| `--bar-sink` | `stdout` `fifo` `socket` | `stdout` |
-| `--bar-out` | Path for fifo or socket sink | *(required if not stdout)* |
-
-### Waybar
-
-```jsonc
-// ~/.config/waybar/config
-"custom/viz": {
-    "exec": "viz --bar --bar-format waybar --bar-count 12 --bar-color \"#cba6f7\"",
-    "return-type": "json",
-    "interval": "once",
-    "restart-interval": 5,
-    "tooltip": false
-}
-```
-
-```css
-/* style.css */
-#custom-viz {
-    font-family: "JetBrainsMono Nerd Font", monospace;
-    font-size: 13px;
-    padding: 0 10px;
-}
-```
-
-### Polybar / lemonbar
-
-```ini
-[module/viz]
-type = custom/script
-exec = viz --bar --bar-format polybar --bar-count 10 --bar-color "#89b4fa"
-tail = true
-```
-
-### eww
-
-```lisp
-(deflisten viz-bars `viz --bar --bar-format plain --bar-count 8`)
-(defwidget viz [] (label :class "viz" :text viz-bars))
-```
-
-### tmux (via FIFO)
-
-```bash
-# Start in background
-viz --bar --bar-sink fifo --bar-out /tmp/viz.pipe &
-
-# In tmux.conf
-set -g status-right "#(cat /tmp/viz.pipe)"
-```
-
-### dzen2 / i3bar
-
-```bash
-viz --bar --bar-format dzen2 | dzen2 -fn "JetBrainsMono:size=11"
-viz --bar --bar-format i3bar  # for i3bar blocks
-```
-
-### Raw floats (custom scripts)
-
-```bash
-viz --bar --bar-format raw | python3 my_visualizer.py
-```
-
 ---
 
 ## File Locations
@@ -392,7 +307,6 @@ Switch to a truecolor terminal: Kitty, WezTerm, Alacritty, or a modern Konsole/G
 
 Test the command directly:
 ```bash
-viz --bar --bar-format waybar --bar-count 10 2>&1 | head -3
 ```
 If it prints `{"text":"..."}` lines, the format is correct — check your Waybar config JSON and `"return-type": "json"`.
 

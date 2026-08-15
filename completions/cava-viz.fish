@@ -23,31 +23,3 @@ complete -c viz      -l check        -d 'Validate config and exit'
 complete -c viz -s V -l version      -d 'Print version and exit'
 complete -c viz -s h -l help         -d 'Print help and exit'
 
-# ── Bar mode ──────────────────────────────────────────────────────────────────
-complete -c viz      -l bar          -d 'Enable headless bar mode'
-
-complete -c viz      -l bar-format   -d 'Output format'              -r \
-    -a 'plain\t"Raw UTF-8 block chars"
-        waybar\t"JSON with pango span tags (Waybar)"
-        polybar\t"Polybar/lemonbar colour tags"
-        eww\t"Plain text (eww uses CSS)"
-        raw\t"Space-separated floats 0.0-1.0"
-        dzen2\t"dzen2 ^fg() colour tags"
-        i3bar\t"i3bar JSON block"'
-
-complete -c viz      -l bar-count    -d 'Bars per channel'           -r -a '5 8 10 12 16 20'
-complete -c viz      -l bar-chars    -d 'Level characters (UTF-8)'   -r
-complete -c viz      -l bar-color    -d 'Accent color (#RRGGBB)'     -r
-complete -c viz      -l bar-fps      -d 'Output frame rate'          -r -a '10 15 20 30'
-
-complete -c viz      -l bar-stereo   -d 'Stereo handling'            -r \
-    -a 'merge\t"Average L+R (default)"
-        split\t"Emit L | R separately"'
-
-complete -c viz      -l bar-sep      -d 'Stereo split separator'     -r
-complete -c viz      -l bar-sink     -d 'Output sink type'           -r \
-    -a 'stdout\t"Standard output (default)"
-        fifo\t"Named pipe (requires --bar-out)"
-        socket\t"Unix socket server (requires --bar-out)"'
-
-complete -c viz      -l bar-out      -d 'FIFO or socket path'        -r -F
