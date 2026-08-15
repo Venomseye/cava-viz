@@ -43,7 +43,7 @@ At least one audio backend must be present.
 ## Installation
 
 ```bash
-git clone https://github.com/youruser/cava-viz.git
+git clone https://github.com/Venomseye/cava-viz.git
 cd cava-viz
 ./install.sh
 ```
