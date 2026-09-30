@@ -17,7 +17,7 @@ as
 .I .theme
 files. The configuration file is reloaded live whenever it changes on disk,
 or on receipt of
-.BR SIGHUP .
+.BR SIGUSR1 .
 .SH OPTIONS
 .SS General
 .TP
@@ -96,11 +96,11 @@ The configuration file is created on first run at:
 .PP
 Edit it while the visualizer is running; changes are reloaded instantly via
 inotify. Sending
-.B SIGHUP
+.B SIGUSR1
 also triggers an immediate reload:
 .PP
 .RS
-.B kill \-HUP $(pgrep viz)
+.B pkill \-USR1 \-x viz
 .RE
 .PP
 Key-value format with
@@ -118,15 +118,15 @@ hud_pinned|0|Always show HUD overlay
 colour_cycle|0|Rotate gradient hue over time
 per_bar_colour|0|Map colour to bar position
 stereo|1|Stereo capture (0 = mono)
-high_cutoff|10000|Upper frequency limit in Hz
+high_cutoff|20000|Upper frequency limit in Hz
 gravity|1.00|Bar fall speed (0.1\(en5.0)
-monstercat|1.50|Bar spread smoothing (0\(en5.0)
-rise_factor|0.90|Attack smoothing (0\(en0.95)
-bass_smooth|0.10|Extra bass smoothing (0\(en1.0)
+monstercat|1.50|Bar spread smoothing (0 = off, otherwise 1.0\(en5.0)
+rise_factor|0.30|Attack smoothing (0\(en0.95)
+bass_smooth|0.00|Extra bass smoothing (0\(en1.0)
 a_weighting|0|IEC 61672 perceptual weighting
 noise_gate|0.020|Bars below this snap to zero
 auto_mono|0|Auto-collapse stereo when correlated
-sensitivity|1.00|Manual sensitivity multiplier
+sensitivity|1.50|Manual sensitivity multiplier
 auto_sens|1|Automatic sensitivity
 fps|60|Target frame rate (10\(en240)
 .TE
@@ -191,10 +191,11 @@ Directory for user-defined
 files.
 .SH SIGNALS
 .TP
-.B SIGINT, SIGTERM
+.B SIGINT, SIGTERM, SIGHUP
 Quit cleanly, restoring the terminal.
+(SIGHUP is sent when the controlling terminal is closed.)
 .TP
-.B SIGHUP
+.B SIGUSR1
 Reload the configuration file and user themes immediately.
 .TP
 .B SIGWINCH
