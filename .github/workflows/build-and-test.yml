@@ -1,0 +1,61 @@
+name: Build and Test
+
+on:
+  push:
+    branches: [main, master, develop]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  build:
+    name: ${{ matrix.os }} / ${{ matrix.backend }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, ubuntu-24.04]
+        backend: [pulseaudio, pipewire, both]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install base dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y \
+            build-essential cmake pkg-config \
+            libncursesw5-dev \
+            libfftw3-dev
+
+      - name: Install PulseAudio dev libs
+        if: matrix.backend == 'pulseaudio' || matrix.backend == 'both'
+        run: sudo apt-get install -y libpulse-dev
+
+      - name: Install PipeWire dev libs
+        if: matrix.backend == 'pipewire' || matrix.backend == 'both'
+        run: sudo apt-get install -y libpipewire-0.3-dev libspa-0.2-dev
+
+      - name: Configure (PulseAudio=${{ matrix.backend != 'pipewire' }}, PipeWire=${{ matrix.backend != 'pulseaudio' }})
+        run: |
+          cmake -B build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_CXX_FLAGS_RELEASE="-O2 -DNDEBUG" \
+            -DENABLE_PULSEAUDIO=${{ matrix.backend != 'pipewire' && 'ON' || 'OFF' }} \
+            -DENABLE_PIPEWIRE=${{ matrix.backend != 'pulseaudio' && 'ON' || 'OFF' }}
+
+      - name: Build
+        run: cmake --build build --parallel $(nproc)
+
+      - name: Verify binary exists and links
+        run: |
+          test -f build/viz
+          file build/viz
+          ldd  build/viz
+
+      - name: Upload binary artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: viz-${{ matrix.os }}-${{ matrix.backend }}
+          path: build/viz
+          retention-days: 7
