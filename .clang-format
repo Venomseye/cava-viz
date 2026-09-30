@@ -1,0 +1,5 @@
+# The existing sources are formatted with stock LLVM style (2-space indent,
+# 80 columns, right-aligned pointers).  Keep it that way: any other value here
+# makes CI rewrite the whole tree.
+BasedOnStyle: LLVM
+Standard: c++17
