@@ -62,8 +62,7 @@ std::string runProcess(const std::vector<std::string> &args, int timeout_ms) {
   argv.push_back(nullptr);
 
   pid_t pid = 0;
-  const int rc =
-      posix_spawnp(&pid, argv[0], &fa, &attr, argv.data(), environ);
+  const int rc = posix_spawnp(&pid, argv[0], &fa, &attr, argv.data(), environ);
   posix_spawn_file_actions_destroy(&fa);
   posix_spawnattr_destroy(&attr);
   close(pfd[1]);

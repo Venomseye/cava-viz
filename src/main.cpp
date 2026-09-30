@@ -196,7 +196,7 @@ static void applyRendererConfig(Renderer &r, const Config &cfg,
 
 // ─────────────────────────────────────────────────────────────────────────────
 int main(int argc, char *argv[]) {
-  struct sigaction sa {};
+  struct sigaction sa{};
   sa.sa_handler = sig_handler;
   sigemptyset(&sa.sa_mask);
   sigaction(SIGINT, &sa, nullptr);
@@ -413,11 +413,10 @@ int main(int argc, char *argv[]) {
   auto fps_tp = Clock::now();
   const int WATCH = target_fps * 2;
 
-
   // Absolute-deadline frame limiter (Linux): initialise the first deadline
   // to now so the first iteration sleeps for exactly one budget period.
 #ifdef __linux__
-  struct timespec t_deadline {};
+  struct timespec t_deadline{};
   clock_gettime(CLOCK_MONOTONIC, &t_deadline);
 #endif
 

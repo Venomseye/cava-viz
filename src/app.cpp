@@ -370,7 +370,7 @@ int App::run(int argc, char *argv[]) {
   applyRendererConfig();
 
   // Signals
-  struct sigaction sa {};
+  struct sigaction sa{};
   sa.sa_handler = sigHandler;
   sigemptyset(&sa.sa_mask);
   sigaction(SIGTERM, &sa, nullptr);

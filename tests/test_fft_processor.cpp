@@ -41,7 +41,8 @@ static void run(FFTProcessor &fft, int channels, double freq, double amp_l,
     std::vector<float> chunk;
     chunk.reserve(static_cast<size_t>(per_frame) * channels);
     for (int i = 0; i < per_frame; ++i, ++n) {
-      const double v = std::sin(2.0 * PI * freq * static_cast<double>(n) / RATE);
+      const double v =
+          std::sin(2.0 * PI * freq * static_cast<double>(n) / RATE);
       chunk.push_back(static_cast<float>(amp_l * v));
       if (channels == 2)
         chunk.push_back(static_cast<float>(amp_r * v));
@@ -73,7 +74,8 @@ static void test_setter_clamp() {
   fft.setMonstercat(-3.0f);
   CHECK(fft.moncatFactor() == 0.0f, "negative monstercat -> off");
   fft.setMonstercat(0.3f);
-  CHECK(fft.moncatFactor() >= 1.0f, "0<m<1 is raised to >=1.0 (was amplifying)");
+  CHECK(fft.moncatFactor() >= 1.0f,
+        "0<m<1 is raised to >=1.0 (was amplifying)");
   fft.setMonstercat(1.5f);
   CHECK(fft.moncatFactor() == 1.5f, "1.5 unchanged");
   fft.setMonstercat(99.0f);
@@ -146,7 +148,6 @@ static void test_channel_mapping() {
     CHECK(l < r * 0.2f, "right-only tone is (nearly) absent on barsL");
   }
 }
-
 
 // ── helpers for arbitrary per-sample generators ──────────────────────────────
 struct Rng {
