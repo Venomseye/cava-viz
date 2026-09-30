@@ -42,10 +42,11 @@ WarningsAsErrors: >-
   clang-analyzer-deadcode.DeadStores,
 
 # ── File filters ──────────────────────────────────────────────────────────────
-# Only lint headers inside src/ and tests/.
-# fft_processor is intentionally excluded — it implements the CAVA algorithm
-# verbatim and should not be reformatted or auto-fixed.
-HeaderFilterRegex: '^(src|tests)/(?!fft_processor)'
+# Only lint our own headers, and not fft_processor.h (CAVA algorithm).
+# clang-tidy uses a POSIX-style regex engine with NO lookahead, so the old
+# '(?!fft_processor)' form never matched anything; list the headers instead.
+# Matched against the absolute path, hence the leading '.*/'.
+HeaderFilterRegex: '.*/src/(audio_capture|audio_utils|config|pipewire_capture|pulse_capture|renderer|user_theme)\.h$'
 
 # ── Format style ─────────────────────────────────────────────────────────────
 FormatStyle:       file

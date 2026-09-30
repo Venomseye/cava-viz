@@ -270,7 +270,8 @@ void Config::save() const {
              "──────────────────────────────────────────────\n");
   fprintf(f, "# gravity: fall speed (0.1=slow, 1.0=default, 5.0=instant)\n");
   fprintf(f, "gravity        = %.2f\n", static_cast<double>(gravity));
-  fprintf(f, "# monstercat: bar spread (0=off, 1.0-5.0; values in (0,1) act as 1.0; 1.5=default)\n");
+  fprintf(f, "# monstercat: bar spread (0=off, 1.0-5.0; values in (0,1) act as "
+             "1.0; 1.5=default)\n");
   fprintf(f, "monstercat     = %.2f\n", static_cast<double>(monstercat));
   fprintf(f, "# rise_factor: attack smoothing (0.0=instant, 0.95=very slow)\n");
   fprintf(f, "rise_factor    = %.2f\n", static_cast<double>(rise_factor));
