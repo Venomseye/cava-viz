@@ -30,18 +30,27 @@ jobs:
             libpipewire-0.3-dev \
             libspa-0.2-dev
 
-      # Strip -march=native so the binary runs on any x86-64 CPU,
-      # not just the exact microarchitecture of the CI runner.
+      # Portable build: no -march=native, so the binary runs on any x86-64 CPU
+      # and not just the exact microarchitecture of the CI runner.
       - name: Configure
         run: |
           cmake -B build \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_CXX_FLAGS_RELEASE="-O3 -DNDEBUG" \
+            -DNATIVE_ARCH=OFF \
             -DENABLE_PULSEAUDIO=ON \
             -DENABLE_PIPEWIRE=ON
 
       - name: Build
         run: cmake --build build --parallel $(nproc)
+
+      # Guard: fail the release if CPU-specific flags ever sneak back in.
+      - name: Verify portable flags
+        run: |
+          if grep -rq -- '-march=native' build/CMakeFiles/viz.dir/flags.make; then
+            echo "::error::-march=native found in release build flags"
+            exit 1
+          fi
 
       - name: Strip binary
         run: strip build/viz
