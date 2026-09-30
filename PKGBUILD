@@ -4,24 +4,23 @@ pkgver=1.2.0
 pkgrel=1
 pkgdesc="Terminal audio visualizer using the CAVA algorithm with ncurses truecolor gradients"
 arch=('x86_64' 'aarch64')
-url="https://github.com/youruser/cava-viz"
+url="https://github.com/Venomseye/cava-viz"
 license=('MIT')
 
-# PipeWire and PulseAudio are optional — at least one must be present at runtime.
-# fftw and ncurses are always required.
+# Both backends are compiled in (ENABLE_PIPEWIRE/ENABLE_PULSEAUDIO=ON below),
+# so the binary links libpulse*.so and libpipewire-0.3.so and will not start
+# without them: they are hard runtime dependencies, not optdepends.
 depends=(
     'fftw'
     'ncurses'
-)
-optdepends=(
-    'pipewire: PipeWire audio backend'
-    'libpulse: PulseAudio audio backend'
+    'libpulse'
+    'libpipewire'
 )
 makedepends=(
     'cmake'
     'ninja'
     'pkg-config'
-    'pipewire'      # build with both backends enabled by default
+    'pipewire'      # headers for the PipeWire backend
     'libpulse'
 )
 source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
@@ -33,6 +32,8 @@ build() {
         -G Ninja \
         -DCMAKE_BUILD_TYPE=Release \
         -DCMAKE_INSTALL_PREFIX=/usr \
+        -DNATIVE_ARCH=OFF \
+        -DBUILD_TESTS=ON \
         -DENABLE_PIPEWIRE=ON \
         -DENABLE_PULSEAUDIO=ON \
         -Wno-dev
@@ -41,39 +42,15 @@ build() {
 
 check() {
     cd "$pkgname-$pkgver"
-
-    # config round-trip tests
-    g++ -std=c++17 -Isrc \
-        -o test_config \
-        tests/test_config.cpp src/config.cpp
-    ./test_config
-
-    # user theme parser tests
-    g++ -std=c++17 -Isrc \
-        -o test_user_theme \
-        tests/test_user_theme.cpp src/user_theme.cpp src/config.cpp
-    ./test_user_theme
+    # config, user_theme and fft_processor suites (registered in CMake)
+    ctest --test-dir build --output-on-failure
 }
 
 package() {
     cd "$pkgname-$pkgver"
     DESTDIR="$pkgdir" cmake --install build
 
-    # Man page
-    install -Dm644 man/cava-viz.1 \
-        "$pkgdir/usr/share/man/man1/cava-viz.1"
-
-    # Shell completions
-    install -Dm644 completions/cava-viz.bash \
-        "$pkgdir/usr/share/bash-completion/completions/viz"
-    install -Dm644 completions/cava-viz.zsh \
-        "$pkgdir/usr/share/zsh/site-functions/_viz"
-    install -Dm644 completions/cava-viz.fish \
-        "$pkgdir/usr/share/fish/vendor_completions.d/viz.fish"
-
-    # Default example theme
-    install -Dm644 examples/ocean.theme \
-        "$pkgdir/usr/share/cava-viz/themes/ocean.theme"
+    # Man page, completions and example themes are installed by CMake.
 
     # License
     install -Dm644 LICENSE \

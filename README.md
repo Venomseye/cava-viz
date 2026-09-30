@@ -76,6 +76,8 @@ cmake --build build -j$(nproc)
 sudo cmake --install build
 ```
 
+Builds are portable by default. For a binary tuned to *this* machine only, add `-DNATIVE_ARCH=ON` (adds `-march=native`; never use it for packages or releases).
+
 ---
 
 ## Usage
@@ -142,10 +144,10 @@ $EDITOR ~/.config/cava-viz/config
 Or trigger a reload from any terminal without editing a file:
 
 ```bash
-kill -HUP $(pgrep viz)
+pkill -USR1 -x viz
 ```
 
-`SIGHUP` reloads the config **and** all user themes, with the same behaviour as inotify (including a stereo/mono audio restart if the `stereo` key changed). Works over SSH and in any environment where inotify isn't available.
+`SIGUSR1` reloads the config **and** all user themes, with the same behaviour as inotify (including a stereo/mono audio restart if the `stereo` key changed). Works over SSH and in any environment where inotify isn't available.
 
 ---
 
@@ -172,7 +174,7 @@ high_cutoff    = 10000      # Hz — frequencies above this are ignored
 
 # ── FFT / Smoothing ───────────────────────────────────────────────────────
 gravity        = 1.00       # fall speed (0.1=slow, 5.0=instant)
-monstercat     = 1.50       # bar spread (0=off)
+monstercat     = 1.50       # bar spread (0=off, 1.0-5.0)
 rise_factor    = 0.90       # attack smoothing (0=instant, 0.95=very slow)
 bass_smooth    = 0.10       # extra smoothing for bass bars
 
@@ -330,7 +332,7 @@ find src tests -name "*.cpp" -o -name "*.h" | grep -v fft_processor \
 clang-tidy -p build src/*.cpp   # excludes fft_processor.cpp via .clang-tidy
 ```
 
-The CI pipeline (`.github/workflows/ci.yml`) runs format, lint, build (Release + Debug+ASan), and all three test suites on every push and pull request.
+The CI pipeline (`.github/workflows/ci.yml`) runs a formatting check, lint, and build + tests (Release and Debug+ASan, via `ctest`: config, user_theme and fft_processor suites) on every push and pull request.
 
 ---
 

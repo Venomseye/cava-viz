@@ -10,7 +10,14 @@ if(NOT CMAKE_BUILD_TYPE)
   set(CMAKE_BUILD_TYPE Release)
 endif()
 
-set(CMAKE_CXX_FLAGS_RELEASE "-O3 -march=native -DNDEBUG")
+# NOTE: CMAKE_CXX_FLAGS_RELEASE is deliberately NOT overridden here.  A plain
+# set() shadows any -DCMAKE_CXX_FLAGS_RELEASE=... given on the command line
+# (which is how the release workflow and distro packagers strip CPU-specific
+# flags) and silently bakes -march=native into distributable binaries.
+# The CMake default for GCC/Clang Release is already "-O3 -DNDEBUG".
+option(NATIVE_ARCH
+       "Tune for this machine's CPU (-march=native). NEVER use for packages/releases." OFF)
+
 set(CMAKE_CXX_FLAGS_DEBUG   "-g -O0 -fsanitize=address,undefined -fno-omit-frame-pointer")
 
 # ── Required dependencies ──────────────────────────────────────────────────────
@@ -67,6 +74,11 @@ target_compile_options(viz PRIVATE
     ${FFTW3_CFLAGS_OTHER}
     ${NCURSES_CFLAGS_OTHER}
 )
+
+if(NATIVE_ARCH)
+    target_compile_options(viz PRIVATE -march=native)
+    message(STATUS "NATIVE_ARCH        : ON  (binary will NOT be portable)")
+endif()
 
 # ── PulseAudio backend ─────────────────────────────────────────────────────────
 if(ENABLE_PULSEAUDIO)
@@ -163,6 +175,19 @@ if(BUILD_TESTS)
     set_target_properties(test_user_theme PROPERTIES
         CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON)
     add_test(NAME user_theme COMMAND test_user_theme)
+
+    # FFT / smoothing regression tests (needs FFTW + threads, no audio device)
+    add_executable(test_fft_processor
+        tests/test_fft_processor.cpp
+        src/fft_processor.cpp)
+    target_include_directories(test_fft_processor PRIVATE
+        ${CMAKE_SOURCE_DIR}/src ${FFTW3_INCLUDE_DIRS})
+    target_link_libraries(test_fft_processor PRIVATE
+        ${FFTW3_LIBRARIES} Threads::Threads m)
+    target_compile_options(test_fft_processor PRIVATE -Wall -Wextra -Wpedantic)
+    set_target_properties(test_fft_processor PROPERTIES
+        CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON)
+    add_test(NAME fft_processor COMMAND test_fft_processor)
 endif()
 
 # ── Summary ────────────────────────────────────────────────────────────────────
