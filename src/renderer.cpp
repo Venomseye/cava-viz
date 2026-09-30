@@ -161,59 +161,6 @@ static const Stop kGrad[static_cast<int>(Theme::COUNT)][7] = {
      {1.00f, {1000, 0, 267}}},
 };
 
-// ── 256-colour fallback palettes
-// ──────────────────────────────────────────────
-static const short kFall[static_cast<int>(Theme::COUNT)][48] = {
-    {202, 208, 208, 214, 214, 220, 196, 196, 160, 160, 161, 125,
-     125, 89,  89,  53,  89,  125, 161, 196, 202, 208, 214, 220,
-     226, 220, 214, 208, 202, 196, 161, 125, 89,  53,  89,  125,
-     161, 196, 202, 208, 214, 220, 220, 226, 231, 231, 231, 231}, // FIRE
-    {93,  57,  57,  21,  27,  33,  39,  45,  51,  87,  123, 159,
-     195, 231, 195, 159, 123, 87,  51,  45,  39,  33,  27,  21,
-     57,  93,  129, 165, 201, 207, 213, 219, 225, 231, 231, 231,
-     231, 231, 231, 231, 231, 231, 231, 231, 231, 231, 231, 231}, // PLASMA
-    {127, 163, 163, 199, 205, 205, 211, 211, 217, 183, 183, 189,
-     189, 225, 225, 231, 225, 219, 213, 207, 201, 207, 213, 219,
-     225, 231, 231, 231, 231, 231, 231, 231, 231, 231, 231, 231,
-     231, 231, 231, 231, 231, 231, 231, 231, 231, 231}, // NEON
-    {30,  36,  37,  43,  44,  45,  51,  87,  123, 159, 195, 231,
-     231, 231, 231, 231, 231, 231, 231, 231, 231, 231, 231, 231,
-     231, 231, 231, 231, 231, 231, 231, 231, 231, 231, 231, 231,
-     231, 231, 231, 231, 231, 231, 231, 231, 231, 231}, // TEAL
-    {214, 208, 202, 196, 160, 124, 125, 89,  53,  54,  55,  91,
-     92,  128, 129, 165, 201, 207, 213, 219, 225, 231, 231, 231,
-     231, 231, 231, 231, 231, 231, 231, 231, 231, 231, 231, 231,
-     231, 231, 231, 231, 231, 231, 231, 231, 231, 231}, // SUNSET
-    {163, 127, 91,  57,  21,  27,  33,  39,  45,  51,  87,  123,
-     159, 195, 231, 231, 231, 231, 231, 231, 231, 231, 231, 231,
-     231, 231, 231, 231, 231, 231, 231, 231, 231, 231, 231, 231,
-     231, 231, 231, 231, 231, 231, 231, 231, 231, 231}, // CANDY
-    {35,  41,  47,  83,  119, 155, 191, 227, 225, 219, 213, 207,
-     201, 165, 129, 93,  57,  93,  129, 165, 201, 207, 213, 219,
-     225, 231, 231, 231, 231, 231, 231, 231, 231, 231, 231, 231,
-     231, 231, 231, 231, 231, 231, 231, 231, 231, 231}, // AURORA
-    {124, 160, 196, 202, 208, 214, 220, 226, 227, 228, 229, 230,
-     231, 231, 231, 231, 231, 231, 231, 231, 231, 231, 231, 231,
-     231, 231, 231, 231, 231, 231, 231, 231, 231, 231, 231, 231,
-     231, 231, 231, 231, 231, 231, 231, 231, 231, 231}, // INFERNO
-    {231, 231, 231, 231, 231, 231, 231, 231, 231, 231, 231, 231, 231,
-     231, 231, 231, 231, 231, 231, 231, 231, 231, 231, 231, 231, 231,
-     231, 231, 231, 231, 231, 231, 231, 231, 231, 231, 231, 231, 231,
-     231, 231, 231, 231, 231, 231, 231, 231, 231}, // WHITE  (solid)
-    {161, 162, 168, 204, 210, 211, 217, 218, 224, 225, 231, 231,
-     231, 231, 231, 231, 231, 231, 231, 231, 231, 231, 231, 231,
-     231, 231, 231, 231, 231, 231, 231, 231, 231, 231, 231, 231,
-     231, 231, 231, 231, 231, 231, 231, 231, 231, 231}, // ROSE
-    {27,  33,  38,  44,  43,  79,  115, 151, 152, 153, 189, 225,
-     219, 213, 207, 201, 165, 129, 93,  57,  93,  129, 165, 201,
-     207, 213, 219, 225, 231, 231, 231, 231, 231, 231, 231, 231,
-     231, 231, 231, 231, 231, 231, 231, 231, 231, 231}, // MERMAID
-    {93,  99,  163, 199, 205, 211, 217, 183, 189, 225, 231, 231,
-     231, 231, 231, 231, 231, 231, 231, 231, 231, 231, 231, 231,
-     231, 231, 231, 231, 231, 231, 231, 231, 231, 231, 231, 231,
-     231, 231, 231, 231, 231, 231, 231, 231, 231, 231}, // VAPOR
-};
-
 // ── Colour helpers
 // ────────────────────────────────────────────────────────────
 static RGB lerpRGB(RGB a, RGB b, float t) noexcept {
@@ -261,8 +208,9 @@ static RGB sampleUserTheme(const UserTheme &ut, float t) noexcept {
 }
 
 // Map an ncurses-scale RGB (0–1000) to the nearest xterm-256 colour index.
-// Used for the 256-colour fallback path for user themes (built-ins use
-// kFall[]).
+// Used by the 256-colour fallback path for ALL themes (the old hand-written
+// per-theme tables were 46/48 entries long, so the last two slots were colour
+// 0 = black: bar tips and the FPS text vanished).
 static short nearestXterm256(short r1k, short g1k, short b1k) noexcept {
   // Convert to 0–255 byte scale.
   const int r = static_cast<int>(r1k * 255 / 1000);
@@ -479,18 +427,17 @@ void Renderer::rebuildColors() {
       init_pair(i + 1, ci, -1);
     }
   } else if (COLORS >= 256) {
+    // Same gradient as the truecolor path, quantised to the xterm-256 palette
+    // (no init_color needed, so this also works on terminals that can't
+    // redefine colours).
     for (int i = 0; i < grad_steps_; ++i) {
-      const float t = static_cast<float>(i) / std::max(1, grad_steps_ - 1);
-      short fg;
-      if (has_user) {
-        // No pre-computed kFall table for user themes — derive dynamically.
-        const RGB rgb = sampleUserTheme(user_themes_[user_idx], t);
-        fg = nearestXterm256(rgb.r, rgb.g, rgb.b);
-      } else {
-        const int pi = std::clamp(static_cast<int>(t * 47.f + 0.5f), 0, 47);
-        fg = kFall[bi][pi];
+      const float raw = static_cast<float>(i) / std::max(1, grad_steps_ - 1);
+      RGB rgb = sample(raw);
+      if (hue_a > 0.f) {
+        const RGB hue = hsvToRgb(hue_offset_ + raw * 60.f, 0.82f, 0.92f);
+        rgb = lerpRGB(rgb, hue, hue_a);
       }
-      init_pair(i + 1, fg, -1);
+      init_pair(i + 1, nearestXterm256(rgb.r, rgb.g, rgb.b), -1);
     }
   } else {
     for (int i = 0; i < grad_steps_; ++i) {
@@ -511,14 +458,8 @@ void Renderer::rebuildColors() {
       init_color(hud_ci, rgb.r, rgb.g, rgb.b);
       init_pair(grad_steps_ + 1 + lv, hud_ci, -1);
     } else if (COLORS >= 256) {
-      short fg;
-      if (has_user) {
-        const RGB rgb = sampleUserTheme(user_themes_[user_idx], kHF[lv]);
-        fg = nearestXterm256(rgb.r, rgb.g, rgb.b);
-      } else {
-        fg = kFall[bi][static_cast<int>(kHF[lv] * 47)];
-      }
-      init_pair(grad_steps_ + 1 + lv, fg, -1);
+      const RGB rgb = sample(kHF[lv]);
+      init_pair(grad_steps_ + 1 + lv, nearestXterm256(rgb.r, rgb.g, rgb.b), -1);
     } else {
       init_pair(grad_steps_ + 1 + lv,
                 kHF[lv] < 0.75f ? COLOR_YELLOW : COLOR_WHITE, -1);

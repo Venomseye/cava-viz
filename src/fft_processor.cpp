@@ -279,7 +279,8 @@ void FFTProcessor::addSamples(const std::vector<float>& s, int /*ch*/) {
 void FFTProcessor::applyMonstercat(std::vector<double>& bars, double factor) const {
     const int    n     = (int)bars.size();
     if (n < 2 || factor <= 0.0) return;
-    const double decay = factor * 1.5;
+    // Defence in depth: decay must stay > 1 or the rolling max amplifies.
+    const double decay = std::max(factor, 1.0) * 1.5;
     for (int i = 1;   i < n;   ++i) bars[i] = std::max(bars[i], bars[i-1] / decay);
     for (int i = n-2; i >= 0; --i) bars[i] = std::max(bars[i], bars[i+1] / decay);
 }

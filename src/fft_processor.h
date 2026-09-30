@@ -81,8 +81,14 @@ public:
     void  setGravity(float g)     { gravity_factor_ = std::clamp(g, 0.1f, 5.0f); }
     float gravity()         const { return gravity_factor_; }
 
-    /// Adjacent-bar propagation. 0 = off, 1.5 = CAVA default. Range 0–5.
-    void  setMonstercat(float m)  { mcat_factor_ = std::clamp(m, 0.0f, 5.0f); }
+    /// Adjacent-bar propagation. 0 = off, 1.5 = CAVA default, max 5.
+    // Any positive value is raised to at least 1.0: the per-step
+    // decay is factor*1.5, and a decay <= 1 makes the rolling max GROW along
+    // the spectrum (factor 0.6 turns one 0.05 bar into 0.95; 0.3 saturates
+    // every bar).  1.0 is the weakest setting that is actually a smoothing.
+    void  setMonstercat(float m)  {
+        mcat_factor_ = (m <= 0.0f) ? 0.0f : std::clamp(m, 1.0f, 5.0f);
+    }
     float moncatFactor()    const { return mcat_factor_; }
 
     /// Upper frequency limit in Hz. Forces plan rebuild on next execute(). Range 1000–24000.

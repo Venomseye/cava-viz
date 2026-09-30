@@ -18,7 +18,7 @@ struct Config {
 
   // ── FFT / Smoothing ───────────────────────────────────────────────────────
   float gravity = 1.0f;     // fall speed multiplier (0.1-5.0)
-  float monstercat = 1.5f;  // adjacent-bar propagation (0.0-5.0)
+  float monstercat = 1.5f;  // bar spread: 0=off, else 1.0-5.0 (<1 acts as 1)
   float rise_factor = 0.3f; // attack smoothing (0.0=instant, 0.95=slow)
   float bass_smooth =
       0.0f; // extra bass smoothing (0.0=off, 0.1-0.3 recommended)

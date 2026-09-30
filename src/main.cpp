@@ -37,13 +37,15 @@
 
 static std::atomic<bool> g_running{true};
 static std::atomic<bool> g_resize{false};
-static std::atomic<bool> g_reload{false}; // set by SIGHUP for live reload
+static std::atomic<bool> g_reload{false}; // set by SIGUSR1 for live reload
 static void sig_handler(int s) {
-  if (s == SIGINT || s == SIGTERM)
+  // SIGHUP is what the kernel sends when the controlling terminal goes away
+  // (window closed, SSH dropped).  It must terminate us, never reload.
+  if (s == SIGINT || s == SIGTERM || s == SIGHUP)
     g_running.store(false);
   else if (s == SIGWINCH)
     g_resize.store(true);
-  else if (s == SIGHUP)
+  else if (s == SIGUSR1)
     g_reload.store(true);
 }
 
@@ -78,7 +80,7 @@ static void print_usage(const char *p) {
          "  w          Toggle A-weighting\n"
          "  n          Toggle auto-mono\n\n"
          "Live reload:\n"
-         "  kill -HUP $(pgrep viz)     Reload config + themes without "
+         "  pkill -USR1 -x viz         Reload config + themes without "
          "restarting\n\n"
          "Config: %s\n"
          "  Edit while running — inotify reloads changes instantly.\n\n"
@@ -200,7 +202,8 @@ int main(int argc, char *argv[]) {
   sigaction(SIGINT, &sa, nullptr);
   sigaction(SIGTERM, &sa, nullptr);
   sigaction(SIGWINCH, &sa, nullptr);
-  sigaction(SIGHUP, &sa, nullptr); // live reload: kill -HUP $(pgrep viz)
+  sigaction(SIGHUP, &sa, nullptr);  // terminal closed -> clean shutdown
+  sigaction(SIGUSR1, &sa, nullptr); // live reload: pkill -USR1 -x viz
 
   Config cfg;
   cfg.load();
@@ -302,7 +305,44 @@ int main(int argc, char *argv[]) {
                  audio, active_source, bname);
   };
 
+  // ── Capture liveness / reconnect state ────────────────────────────────────
+  // heard_audio : true once a non-silent frame arrived on the CURRENT
+  //               connection.  Silence only triggers a reconnect while this
+  //               is still false (wrong/dead source); a track that merely
+  //               pauses must never tear the stream down.
+  // tracked_mon : default-monitor name seen when we last (re)connected;
+  //               compared against detectMonitor() to spot a default-sink
+  //               change.  Kept separate from active_source so a stale
+  //               source name can't cause a reconnect every watchdog tick.
+  static constexpr int SILENCE_BASE_SEC = 5;
+  static constexpr int SILENCE_MAX_SEC = 60;
+  bool heard_audio = false;
+  int silent_frames = 0;
+  int silent_retry_secs = SILENCE_BASE_SEC;
+  std::string tracked_mon;
+
+  auto resetLiveness = [&]() {
+    heard_audio = false;
+    silent_frames = 0;
+  };
+  auto syncTrackedMonitor = [&]() { tracked_mon = detectMonitor(); };
+  // Stop capture, rebuild the FFT for the current cfg.stereo, restart.
+  // The single place that does this (was copy-pasted 3x).
+  auto restartCapture = [&]() {
+    if (audio) {
+      audio->stop();
+      audio.reset();
+    }
+    channels = cfg.stereo ? 2 : 1;
+    fft.reinit(channels);
+    applyFFTConfig(fft, cfg);
+    resetLiveness();
+    startAudio();
+    syncTrackedMonitor();
+  };
+
   startAudio();
+  syncTrackedMonitor();
   if (!audio) {
 #if !defined(HAVE_PULSEAUDIO) && !defined(HAVE_PIPEWIRE)
     fprintf(stderr,
@@ -373,9 +413,6 @@ int main(int argc, char *argv[]) {
   auto fps_tp = Clock::now();
   const int WATCH = target_fps * 2;
 
-  static constexpr int SILENCE_SEC = 5;
-  int silent_frames = 0;
-  const int silence_lim = target_fps * SILENCE_SEC;
 
   // Absolute-deadline frame limiter (Linux): initialise the first deadline
   // to now so the first iteration sleeps for exactly one budget period.
@@ -395,8 +432,8 @@ int main(int argc, char *argv[]) {
     if (g_resize.exchange(false))
       renderer.handleResize();
 
-    // ── SIGHUP reload ─────────────────────────────────────────────────────
-    // Triggered by:  kill -HUP $(pgrep viz)
+    // ── SIGUSR1 reload ─────────────────────────────────────────────────────
+    // Triggered by:  pkill -USR1 -x viz
     // Reloads the config file and user themes exactly like inotify does,
     // but works over SSH and on any POSIX system.
     if (g_reload.exchange(false)) {
@@ -411,15 +448,7 @@ int main(int argc, char *argv[]) {
         renderer.notifyChange();
         renderer.showFeedback("Reloaded");
         if (stereo_changed) {
-          if (audio) {
-            audio->stop();
-            audio.reset();
-          }
-          channels = cfg.stereo ? 2 : 1;
-          fft.reinit(channels);
-          applyFFTConfig(fft, cfg);
-          silent_frames = 0;
-          startAudio();
+          restartCapture();
           if (audio)
             renderer.setSourceName(active_source);
         }
@@ -447,15 +476,7 @@ int main(int argc, char *argv[]) {
               applyFFTConfig(fft, cfg);
               renderer.notifyChange();
               if (stereo_changed) {
-                if (audio) {
-                  audio->stop();
-                  audio.reset();
-                }
-                channels = cfg.stereo ? 2 : 1;
-                fft.reinit(channels);
-                applyFFTConfig(fft, cfg);
-                silent_frames = 0;
-                startAudio();
+                restartCapture();
                 if (audio) {
                   renderer.setSourceName(active_source);
                   renderer.showFeedback(cfg.stereo ? "Stereo" : "Mono");
@@ -489,17 +510,28 @@ int main(int argc, char *argv[]) {
 
     // ── Watchdog ──────────────────────────────────────────────────────────
     if (!use_mic && cli_source.empty() && (frames % WATCH == 0)) {
-      bool reconnect = audio && audio->hasFailed();
-      if (!reconnect && !active_source.empty()) {
+      // No capture at all (a previous reconnect failed) also counts, otherwise
+      // a failed reconnect would never be retried.
+      bool reconnect = !audio || audio->hasFailed();
+
+      // Default sink changed since we connected.
+      if (!reconnect && !tracked_mon.empty()) {
         const std::string cur = detectMonitor();
-        if (!cur.empty() && cur != active_source)
+        if (!cur.empty() && cur != tracked_mon)
           reconnect = true;
       }
-      if (!reconnect && frames > target_fps && silent_frames >= silence_lim)
+
+      // Never heard anything on this connection: probably the wrong source.
+      // Retry with exponential backoff (5s, 10s, 20s ... 60s).  Once audio
+      // has been heard, silence (paused player) never triggers this.
+      if (!reconnect && !heard_audio && frames > target_fps &&
+          silent_frames >= target_fps * silent_retry_secs) {
         reconnect = true;
+        silent_retry_secs = std::min(silent_retry_secs * 2, SILENCE_MAX_SEC);
+      }
 
       if (reconnect) {
-        silent_frames = 0;
+        resetLiveness();
         if (audio) {
           audio->stop();
           audio.reset();
@@ -513,15 +545,17 @@ int main(int argc, char *argv[]) {
           audio = makeAudio(backend, src, sample_rate, channels, cb);
           if (audio) {
             bname = audio->backendName();
+            // Always record what we actually connected to (including "").
+            active_source = src;
             if (!src.empty()) {
-              active_source = src;
               cfg.last_source = src;
               cfg.saveState();
-              renderer.setSourceName(active_source);
             }
+            renderer.setSourceName(active_source);
             break;
           }
         }
+        tracked_mon = mon;
       }
     }
 
@@ -591,16 +625,8 @@ int main(int argc, char *argv[]) {
 
       // ── Stereo / Mono hot-toggle ──────────────────────────────────────
       case 's': {
-        if (audio) {
-          audio->stop();
-          audio.reset();
-        }
         cfg.stereo = !cfg.stereo;
-        channels = cfg.stereo ? 2 : 1;
-        fft.reinit(channels);
-        applyFFTConfig(fft, cfg);
-        silent_frames = 0;
-        startAudio();
+        restartCapture();
         if (audio) {
           renderer.setSourceName(active_source);
           renderer.showFeedback(cfg.stereo ? "Stereo" : "Mono");
@@ -608,10 +634,7 @@ int main(int argc, char *argv[]) {
         } else {
           // Revert on failure
           cfg.stereo = !cfg.stereo;
-          channels = cfg.stereo ? 2 : 1;
-          fft.reinit(channels);
-          applyFFTConfig(fft, cfg);
-          startAudio();
+          restartCapture();
           renderer.showFeedback("Toggle failed");
         }
         break;
@@ -668,7 +691,13 @@ int main(int argc, char *argv[]) {
       for (float v : bl)
         rms += v * v;
       rms = std::sqrt(rms / std::max(1, static_cast<int>(bl.size())));
-      silent_frames = (rms < 0.001f) ? silent_frames + 1 : 0;
+      if (rms < 0.001f) {
+        ++silent_frames;
+      } else {
+        silent_frames = 0;
+        heard_audio = true;
+        silent_retry_secs = SILENCE_BASE_SEC; // healthy again: reset backoff
+      }
     }
 
     renderer.render(fft.barsL(), fft.barsR(), fps, bname, fft.sensitivity(),
