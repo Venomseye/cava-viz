@@ -10,6 +10,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
+#include <sys/stat.h>
 #include <fstream>
 #include <string>
 
@@ -281,6 +282,136 @@ static void testThemeIndexNotClamped() {
 
 // ── main ─────────────────────────────────────────────────────────────────────
 
+// ── Atomic save, no-op skip, symlink + mode preservation, self-write digest ──
+static std::string slurp(const fs::path &p) {
+  std::ifstream in(p, std::ios::binary);
+  return std::string((std::istreambuf_iterator<char>(in)),
+                     std::istreambuf_iterator<char>());
+}
+static int countTmpFiles(const fs::path &dir) {
+  int n = 0;
+  for (const auto &e : fs::directory_iterator(dir))
+    if (e.path().filename().string().find(".tmp.") != std::string::npos)
+      ++n;
+  return n;
+}
+
+static void testAtomicSave() {
+  printf("\n[atomic save / self-write detection]\n");
+  TempDir td;
+  const fs::path cfgp = Config::configPath();
+
+  Config c;
+  c.theme = 3;
+  c.save(); // first-time template path
+  check_bool("first save creates the file", fs::exists(cfgp), true);
+  check_int("no temp files left after first save",
+            countTmpFiles(cfgp.parent_path()), 0);
+  check_bool("digest of last save == digest of file on disk",
+             Config::lastSavedDigest() == Config::currentFileDigest() &&
+                 Config::currentFileDigest() != 0,
+             true);
+
+  // Unchanged save must not touch the file at all (same inode, same bytes).
+  struct stat before {};
+  stat(cfgp.c_str(), &before);
+  const std::string text_before = slurp(cfgp);
+  c.save();
+  struct stat after {};
+  stat(cfgp.c_str(), &after);
+  check_bool("unchanged save does not rewrite the file (same inode)",
+             before.st_ino == after.st_ino, true);
+  check_bool("unchanged save leaves content identical",
+             slurp(cfgp) == text_before, true);
+
+  // Hand-formatted lines and inline comments survive saves that don't change
+  // that value; only the changed line is rewritten.
+  {
+    std::ofstream(cfgp) << "theme        =   3    # my favourite\n"
+                           "gravity      = 1.0    # slow fall\n";
+    Config k;
+    k.load();
+    k.save(); // nothing changed
+    check_bool("unchanged values keep spacing and inline comments",
+               slurp(cfgp).find("theme        =   3    # my favourite") !=
+                       std::string::npos &&
+                   slurp(cfgp).find("gravity      = 1.0    # slow fall") !=
+                       std::string::npos,
+               true);
+    k.theme = 5;
+    k.save();
+    const std::string t = slurp(cfgp);
+    check_bool("changed line is rewritten",
+               t.find("theme = 5") != std::string::npos, true);
+    check_bool("untouched neighbour keeps its inline comment",
+               t.find("gravity      = 1.0    # slow fall") != std::string::npos,
+               true);
+    Config k2;
+    k2.theme = 3;
+    k2.save(); // restore a template-style file for the rest of the test
+    fs::remove(cfgp);
+    Config fresh;
+    fresh.theme = 3;
+    fresh.save();
+  }
+
+  // A real change is written, atomically, and is recognised as our own.
+  c.theme = 7;
+  c.save();
+  Config r;
+  r.load();
+  check_int("changed value is persisted", r.theme, 7);
+  check_int("no temp files left after update",
+            countTmpFiles(cfgp.parent_path()), 0);
+  check_bool("digest matches after update",
+             Config::lastSavedDigest() == Config::currentFileDigest(), true);
+
+  // An external edit must NOT look like our own write.
+  {
+    std::ofstream out(cfgp, std::ios::app);
+    out << "# edited by hand\n";
+  }
+  check_bool("external edit changes digest (so it gets reloaded)",
+             Config::lastSavedDigest() != Config::currentFileDigest(), true);
+
+  // Permission bits survive a save (config may hold a private source name).
+  chmod(cfgp.c_str(), 0600);
+  c.theme = 2;
+  c.save();
+  struct stat pm {};
+  stat(cfgp.c_str(), &pm);
+  check_int("file mode preserved across save", static_cast<int>(pm.st_mode & 0777),
+            0600);
+}
+
+static void testSymlinkedConfig() {
+  printf("\n[symlinked config (dotfile managers)]\n");
+  TempDir td;
+  const fs::path cfgp = Config::configPath();
+  fs::create_directories(cfgp.parent_path());
+  const fs::path real_dir = td.path / "dotfiles";
+  fs::create_directories(real_dir);
+  const fs::path real = real_dir / "cava-viz.conf";
+  { std::ofstream(real) << "theme = 4\n# my note\n"; }
+  fs::create_symlink(real, cfgp);
+
+  Config c;
+  c.load();
+  check_int("loads through the symlink", c.theme, 4);
+  c.theme = 9;
+  c.save();
+
+  check_bool("config path is still a symlink after save",
+             fs::is_symlink(cfgp), true);
+  check_bool("symlink still points at the original target",
+             fs::read_symlink(cfgp) == real, true);
+  check_bool("target file got the new value",
+             slurp(real).find("theme = 9") != std::string::npos, true);
+  check_bool("comments in the target preserved",
+             slurp(real).find("# my note") != std::string::npos, true);
+  check_int("no temp files in dotfiles dir", countTmpFiles(real_dir), 0);
+}
+
 int main() {
   printf("cava-viz config test suite\n");
   printf("===========================\n");
@@ -292,6 +423,8 @@ int main() {
   testMalformedFloat();
   testStateRoundTrip();
   testThemeIndexNotClamped();
+  testAtomicSave();
+  testSymlinkedConfig();
 
   printf("\n===========================\n");
   printf("Results: %d/%d passed", tests_run - tests_failed, tests_run);

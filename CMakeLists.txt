@@ -188,6 +188,22 @@ if(BUILD_TESTS)
     set_target_properties(test_fft_processor PROPERTIES
         CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON)
     add_test(NAME fft_processor COMMAND test_fft_processor)
+
+    # Subprocess helper / monitor polling (audio_utils.cpp compiled WITHOUT
+    # the Pulse/PipeWire backends, so it needs neither library).
+    add_executable(test_audio_utils
+        tests/test_audio_utils.cpp
+        src/audio_utils.cpp
+        src/fft_processor.cpp
+        src/config.cpp)
+    target_include_directories(test_audio_utils PRIVATE
+        ${CMAKE_SOURCE_DIR}/src ${FFTW3_INCLUDE_DIRS})
+    target_link_libraries(test_audio_utils PRIVATE
+        ${FFTW3_LIBRARIES} Threads::Threads m)
+    target_compile_options(test_audio_utils PRIVATE -Wall -Wextra -Wpedantic)
+    set_target_properties(test_audio_utils PROPERTIES
+        CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON)
+    add_test(NAME audio_utils COMMAND test_audio_utils)
 endif()
 
 # ── Summary ────────────────────────────────────────────────────────────────────

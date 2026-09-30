@@ -9,7 +9,9 @@
 
 #include "fft_processor.h"
 
+#include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <cstdio>
 #include <vector>
 
@@ -39,8 +41,7 @@ static void run(FFTProcessor &fft, int channels, double freq, double amp_l,
     std::vector<float> chunk;
     chunk.reserve(static_cast<size_t>(per_frame) * channels);
     for (int i = 0; i < per_frame; ++i, ++n) {
-      const double v =
-          std::sin(2.0 * PI * freq * static_cast<double>(n) / RATE);
+      const double v = std::sin(2.0 * PI * freq * static_cast<double>(n) / RATE);
       chunk.push_back(static_cast<float>(amp_l * v));
       if (channels == 2)
         chunk.push_back(static_cast<float>(amp_r * v));
@@ -72,8 +73,7 @@ static void test_setter_clamp() {
   fft.setMonstercat(-3.0f);
   CHECK(fft.moncatFactor() == 0.0f, "negative monstercat -> off");
   fft.setMonstercat(0.3f);
-  CHECK(fft.moncatFactor() >= 1.0f,
-        "0<m<1 is raised to >=1.0 (was amplifying)");
+  CHECK(fft.moncatFactor() >= 1.0f, "0<m<1 is raised to >=1.0 (was amplifying)");
   fft.setMonstercat(1.5f);
   CHECK(fft.moncatFactor() == 1.5f, "1.5 unchanged");
   fft.setMonstercat(99.0f);
@@ -147,12 +147,130 @@ static void test_channel_mapping() {
   }
 }
 
+
+// ── helpers for arbitrary per-sample generators ──────────────────────────────
+struct Rng {
+  uint64_t s;
+  explicit Rng(uint64_t seed) : s(seed) {}
+  double next() { // uniform [-1, 1)
+    s ^= s << 13;
+    s ^= s >> 7;
+    s ^= s << 17;
+    return static_cast<double>(s >> 11) / 4503599627370496.0 - 1.0;
+  }
+};
+
+// gen(sample_index, left, right)
+template <class Gen>
+static void feed(FFTProcessor &fft, int frames_n, long &n, Gen gen) {
+  const int per_frame = RATE / FPS;
+  for (int f = 0; f < frames_n; ++f) {
+    std::vector<float> chunk;
+    chunk.reserve(static_cast<size_t>(per_frame) * 2);
+    for (int i = 0; i < per_frame; ++i, ++n) {
+      float l = 0.f, r = 0.f;
+      gen(n, l, r);
+      chunk.push_back(l);
+      chunk.push_back(r);
+    }
+    fft.addSamples(chunk, 2);
+    fft.execute(BARS, static_cast<float>(FPS));
+  }
+}
+
+static void test_auto_mono_uses_waveform_correlation() {
+  {
+    // Genuinely mono (L == R) -> must collapse.
+    FFTProcessor fft(RATE, 2);
+    configure(fft);
+    fft.setAutoMono(true);
+    Rng rng(1);
+    long n = 0;
+    feed(fft, 150, n, [&](long, float &l, float &r) {
+      l = r = static_cast<float>(0.3 * rng.next());
+    });
+    CHECK(fft.stereoCorrelation() > 0.97f, "identical channels: corr ~1");
+    CHECK(fft.isAutoMonoActive(), "identical channels collapse to mono");
+  }
+  {
+    // Two INDEPENDENT noises: waveforms are unrelated (corr ~0) but their
+    // magnitude spectra look alike.  The old magnitude-based correlation
+    // scored this ~1.0 and wrongly collapsed real stereo.
+    FFTProcessor fft(RATE, 2);
+    configure(fft);
+    fft.setAutoMono(true);
+    Rng rl(11), rr(97);
+    long n = 0;
+    feed(fft, 300, n, [&](long, float &l, float &r) {
+      l = static_cast<float>(0.3 * rl.next());
+      r = static_cast<float>(0.3 * rr.next());
+    });
+    CHECK(fft.stereoCorrelation() < 0.5f, "independent noise: low correlation");
+    CHECK(!fft.isAutoMonoActive(), "wide stereo is NOT collapsed");
+
+    // Silence has no defined correlation: state must hold, not drift to mono.
+    feed(fft, 300, n, [](long, float &l, float &r) { l = r = 0.f; });
+    CHECK(!fft.isAutoMonoActive(), "silence does not flip stereo to mono");
+  }
+  {
+    // Inverted channels are anti-correlated, not mono.
+    FFTProcessor fft(RATE, 2);
+    configure(fft);
+    fft.setAutoMono(true);
+    Rng rng(5);
+    long n = 0;
+    feed(fft, 150, n, [&](long, float &l, float &r) {
+      l = static_cast<float>(0.3 * rng.next());
+      r = -l;
+    });
+    CHECK(fft.stereoCorrelation() < -0.5f, "inverted channels: negative corr");
+    CHECK(!fft.isAutoMonoActive(), "inverted channels are not collapsed");
+  }
+}
+
+static void test_auto_sens_ignores_dither() {
+  FFTProcessor fft(RATE, 2);
+  fft.setAutoSens(true);
+  fft.setAutoMono(false);
+  fft.setSensitivity(1.0f);
+  long n = 0;
+  auto music = [](long i, float &l, float &r) {
+    l = r = static_cast<float>(0.3 * std::sin(2.0 * PI * 1000.0 * i / RATE));
+  };
+  feed(fft, 60 * 20, n, music);
+  const double g_music = fft.autoGain();
+
+  // A paused player that still emits +-1 LSB dither (not exactly zero).
+  Rng rng(3);
+  feed(fft, 60 * 60, n, [&](long, float &l, float &r) {
+    l = static_cast<float>(std::floor(rng.next() * 1.5) / 32768.0);
+    r = static_cast<float>(std::floor(rng.next() * 1.5) / 32768.0);
+  });
+  const double g_after = fft.autoGain();
+  // Old code: +0.1%/frame for 3600 frames => x36.  Must stay put now.
+  CHECK(g_after <= g_music * 1.05, "auto-sens does not creep up on dither");
+
+  // ...but a genuinely quiet signal (-60 dBFS) is NOT silence and must still
+  // be amplified.
+  FFTProcessor quiet(RATE, 2);
+  quiet.setAutoSens(true);
+  quiet.setAutoMono(false);
+  quiet.setSensitivity(1.0f);
+  long m = 0;
+  feed(quiet, 60 * 20, m, [](long i, float &l, float &r) {
+    l = r = static_cast<float>(0.001 * std::sin(2.0 * PI * 1000.0 * i / RATE));
+  });
+  CHECK(quiet.autoGain() > 5.0, "quiet real signal still gets auto-gain");
+}
+
 int main() {
   test_setter_clamp();
   test_silence();
   test_tone_position_and_bounds();
   test_monstercat_low_factor_does_not_saturate();
   test_channel_mapping();
+  test_auto_mono_uses_waveform_correlation();
+  test_auto_sens_ignores_dither();
   std::printf("fft_processor: %d passed, %d failed\n", g_pass, g_fail);
   return g_fail ? 1 : 0;
 }

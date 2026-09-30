@@ -1,56 +1,12 @@
 #ifdef HAVE_PULSEAUDIO
 #include "pulse_capture.h"
 
+#include "audio_utils.h"
+
 #include <cstdio>
 #include <pulse/error.h>
 #include <pulse/sample.h>
 #include <pulse/simple.h>
-
-// Query default sink monitor via pactl.
-// Returns "sinkname.monitor" on success, "" on failure.
-static std::string pulseDefaultMonitor() {
-  // Method 1: get-default-sink  (fastest, works on PA and pipewire-pulse)
-  {
-    FILE *fp = popen("pactl get-default-sink 2>/dev/null", "r");
-    if (fp) {
-      char buf[256] = {};
-      bool ok = (std::fgets(buf, sizeof(buf), fp) != nullptr);
-      pclose(fp);
-      if (ok) {
-        std::string s = buf;
-        while (!s.empty() &&
-               (s.back() == '\n' || s.back() == '\r' || s.back() == ' '))
-          s.pop_back();
-        if (!s.empty())
-          return s + ".monitor";
-      }
-    }
-  }
-
-  // Method 2: enumerate sources and pick the first *.monitor
-  // FIX: added as fallback for systems where get-default-sink is unavailable
-  // or returns nothing (e.g. some minimal installs without pipewire-pulse).
-  {
-    FILE *fp = popen("pactl list short sources 2>/dev/null"
-                     " | awk '/\\.monitor/{print $2; exit}'",
-                     "r");
-    if (fp) {
-      char buf[256] = {};
-      bool ok = (std::fgets(buf, sizeof(buf), fp) != nullptr);
-      pclose(fp);
-      if (ok) {
-        std::string s = buf;
-        while (!s.empty() &&
-               (s.back() == '\n' || s.back() == '\r' || s.back() == ' '))
-          s.pop_back();
-        if (!s.empty())
-          return s;
-      }
-    }
-  }
-
-  return "";
-}
 
 PulseAudioCapture::PulseAudioCapture() = default;
 PulseAudioCapture::~PulseAudioCapture() { stop(); }
@@ -59,7 +15,7 @@ bool PulseAudioCapture::init(const std::string &src, int sr, int ch) {
   if (src.empty()) {
     // Auto-detect: find the default output monitor so we capture system
     // audio rather than the microphone.
-    source_ = pulseDefaultMonitor();
+    source_ = detectMonitor(); // cached, non-blocking after first call
     // NOTE: if detection fails source_ stays empty.  pa_simple_new with
     // a NULL device for PA_STREAM_RECORD uses the server's default SOURCE,
     // which is typically the microphone.  We still proceed and let start()

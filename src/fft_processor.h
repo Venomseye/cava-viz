@@ -42,6 +42,13 @@ public:
 
     // Stereo auto-collapse: collapse to mono when EMA correlation exceeds ON
     // threshold; restore stereo when it drops below OFF threshold (hysteresis).
+    // A frame counts as "silent" for auto-sensitivity when no new sample
+    // exceeds this peak (input is scaled to +-32768, so 4 ~= -78 dBFS).
+    // Was "exactly 0.0": a single LSB of dither counted as signal, so
+    // sensitivity crept up to its cap during pauses and then blasted the
+    // display (bars pinned at 1.0 for seconds) when music resumed.
+    static constexpr double SILENCE_PEAK  = 4.0;
+
     static constexpr double MONO_CORR_ON  = 0.97;
     static constexpr double MONO_CORR_OFF = 0.90;
     static constexpr double CORR_EMA_K    = 0.05;   // EMA smoothing coefficient
@@ -130,6 +137,9 @@ public:
     /// Useful for mono sources that report as stereo (e.g. browser loopback).
     void  setAutoMono(bool v)     { auto_mono_ = v; }
     bool  autoMono()        const { return auto_mono_; }
+
+    /// Current auto-sensitivity gain (excludes the manual multiplier).
+    double autoGain()         const { return sens_; }
 
     /// Smoothed stereo correlation coefficient [−1, 1]. 1.0 = perfectly mono.
     float stereoCorrelation() const { return (float)corr_ema_; }

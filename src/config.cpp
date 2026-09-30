@@ -3,10 +3,14 @@
 #include <cctype>
 #include <cerrno>
 #include <cstdio>
+#include <cmath>
 #include <cstdlib>
 #include <cstring>
+#include <fcntl.h>
+#include <functional>
 #include <string>
 #include <sys/stat.h>
+#include <unistd.h>
 #include <vector>
 
 static std::string xdgBase(const char *var, const char *suffix) {
@@ -29,6 +33,112 @@ static void mkdirFor(const std::string &path) {
     }
   }
   mkdir(dir.c_str(), 0755); // final component
+}
+
+// ── Atomic file write ────────────────────────────────────────────────────────
+// Writes to a temp file in the same directory, fsyncs, then rename()s over the
+// target.  A crash or a concurrent reader can therefore never see a truncated
+// config (the old fopen("w") truncated in place).  If `path` is a symlink
+// (dotfile managers such as stow/chezmoi) the TARGET is replaced and the
+// symlink is preserved; existing permission bits are kept.
+static bool writeFileAtomic(const std::string &path,
+                            const std::string &content) {
+  std::string target = path;
+  if (char *rp = realpath(path.c_str(), nullptr)) {
+    target = rp;
+    std::free(rp);
+  }
+  mode_t mode = 0644;
+  bool had_mode = false;
+  struct stat st {};
+  if (stat(target.c_str(), &st) == 0) {
+    mode = st.st_mode & 07777;
+    had_mode = true;
+  }
+
+  const std::string tmp = target + ".tmp." + std::to_string(getpid());
+  const int fd = open(tmp.c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, mode);
+  if (fd < 0)
+    return false;
+
+  bool ok = true;
+  const char *data = content.data();
+  std::size_t left = content.size();
+  while (left > 0) {
+    const ssize_t n = write(fd, data, left);
+    if (n < 0) {
+      if (errno == EINTR)
+        continue;
+      ok = false;
+      break;
+    }
+    data += n;
+    left -= static_cast<std::size_t>(n);
+  }
+  if (ok && had_mode)
+    ok = (fchmod(fd, mode) == 0);
+  if (ok)
+    ok = (fsync(fd) == 0);
+  if (close(fd) != 0)
+    ok = false;
+  if (ok)
+    ok = (rename(tmp.c_str(), target.c_str()) == 0);
+  if (!ok)
+    unlink(tmp.c_str());
+  return ok;
+}
+
+static bool readWholeFile(const std::string &path, std::string &out) {
+  FILE *f = std::fopen(path.c_str(), "r");
+  if (!f)
+    return false;
+  out.clear();
+  char buf[4096];
+  std::size_t n;
+  while ((n = std::fread(buf, 1, sizeof(buf), f)) > 0)
+    out.append(buf, n);
+  std::fclose(f);
+  return true;
+}
+
+// True if `file_val` (text found in the config) already means the same as
+// `new_val` (freshly formatted from the runtime value).  Lets save() leave a
+// line — including the user's spacing and inline comment — untouched unless
+// the setting really changed.  "1.0" == "1.00"; differences smaller than half
+// a unit in new_val's last decimal place count as equal.
+static bool sameValue(const std::string &file_val, const std::string &new_val) {
+  if (file_val == new_val)
+    return true;
+  char *e1 = nullptr, *e2 = nullptr;
+  const double a = std::strtod(file_val.c_str(), &e1);
+  const double b = std::strtod(new_val.c_str(), &e2);
+  if (e1 == file_val.c_str() || e2 == new_val.c_str() || *e2 != '\0')
+    return false;
+  // The file value may carry trailing spaces and an inline "# comment".
+  while (*e1 == ' ' || *e1 == '\t')
+    ++e1;
+  if (*e1 != '\0' && *e1 != '#')
+    return false;
+  const std::size_t dot = new_val.find('.');
+  const int decimals =
+      (dot == std::string::npos) ? 0 : static_cast<int>(new_val.size() - dot - 1);
+  double tol = 0.5;
+  for (int i = 0; i < decimals; ++i)
+    tol /= 10.0;
+  return std::fabs(a - b) <= tol + 1e-9;
+}
+
+// Digest of the bytes most recently written (or found already up to date) by
+// Config::save() in this process.
+static std::size_t g_last_saved_digest = 0;
+
+std::size_t Config::lastSavedDigest() { return g_last_saved_digest; }
+
+std::size_t Config::currentFileDigest() {
+  std::string s;
+  if (!readWholeFile(configPath(), s))
+    return 0;
+  return std::hash<std::string>{}(s);
 }
 
 std::string Config::configPath() {
@@ -190,21 +300,26 @@ void Config::save() const {
 
   // ── Try to read existing file ─────────────────────────────────────────────
   std::vector<std::string> lines;
-  {
-    FILE *rf = std::fopen(p.c_str(), "r");
-    if (rf) {
-      char buf[1536];
-      while (std::fgets(buf, sizeof(buf), rf))
-        lines.push_back(buf);
-      std::fclose(rf);
+  std::string old_text;
+  if (readWholeFile(p, old_text)) {
+    std::size_t pos = 0;
+    while (pos < old_text.size()) {
+      std::size_t nl = old_text.find('\n', pos);
+      nl = (nl == std::string::npos) ? old_text.size() : nl + 1;
+      lines.push_back(old_text.substr(pos, nl - pos));
+      pos = nl;
     }
   }
 
+  // Final bytes to store; written once, atomically, at the end.
+  std::string content;
+
   if (!lines.empty()) {
     // ── Read-modify-write: update known keys in-place ─────────────────────
-    // Unknown lines (comments, blank lines, user additions) are kept as-is.
-    // Inline comments on a key=value line are lost when the value changes —
-    // a small, acceptable trade-off for correctness.
+    // Unknown lines (comments, blank lines, user additions) are kept as-is,
+    // and so are key=value lines whose value did not change (spacing and
+    // inline comments included).  An inline comment is only lost when that
+    // line's value is actually rewritten.
     std::vector<bool> written(kvs.size(), false);
 
     for (auto &line : lines) {
@@ -213,7 +328,9 @@ void Config::save() const {
         continue;
       for (std::size_t i = 0; i < kvs.size(); ++i) {
         if (kvs[i].first == k) {
-          line = kvs[i].first + " = " + kvs[i].second + "\n";
+          // Keep the user's line verbatim unless the value really changed.
+          if (!sameValue(vbuf, kvs[i].second))
+            line = kvs[i].first + " = " + kvs[i].second + "\n";
           written[i] = true;
           break;
         }
@@ -226,17 +343,24 @@ void Config::save() const {
         lines.push_back(kvs[i].first + " = " + kvs[i].second + "\n");
     }
 
-    FILE *wf = std::fopen(p.c_str(), "w");
-    if (!wf)
-      return;
     for (const auto &l : lines)
-      std::fwrite(l.data(), 1, l.size(), wf);
-    std::fclose(wf);
+      content += l;
+
+    // Nothing changed (e.g. a key press that doesn't alter any setting):
+    // don't touch the file, so no inotify event and no pointless reload.
+    if (content == old_text) {
+      g_last_saved_digest = std::hash<std::string>{}(content);
+      return;
+    }
+    if (writeFileAtomic(p, content))
+      g_last_saved_digest = std::hash<std::string>{}(content);
     return;
   }
 
   // ── First-time write: emit the full annotated template ────────────────────
-  FILE *f = std::fopen(p.c_str(), "w");
+  char *mbuf = nullptr;
+  std::size_t mlen = 0;
+  FILE *f = open_memstream(&mbuf, &mlen);
   if (!f)
     return;
 
@@ -270,8 +394,7 @@ void Config::save() const {
              "──────────────────────────────────────────────\n");
   fprintf(f, "# gravity: fall speed (0.1=slow, 1.0=default, 5.0=instant)\n");
   fprintf(f, "gravity        = %.2f\n", static_cast<double>(gravity));
-  fprintf(f, "# monstercat: bar spread (0=off, 1.0-5.0; values in (0,1) act as "
-             "1.0; 1.5=default)\n");
+  fprintf(f, "# monstercat: bar spread (0=off, 1.0-5.0; values in (0,1) act as 1.0; 1.5=default)\n");
   fprintf(f, "monstercat     = %.2f\n", static_cast<double>(monstercat));
   fprintf(f, "# rise_factor: attack smoothing (0.0=instant, 0.95=very slow)\n");
   fprintf(f, "rise_factor    = %.2f\n", static_cast<double>(rise_factor));
@@ -300,7 +423,11 @@ void Config::save() const {
              "──────────────────────────────────────────────────\n");
   fprintf(f, "fps            = %d\n", fps);
 
-  std::fclose(f);
+  std::fclose(f); // flushes into mbuf/mlen
+  content.assign(mbuf ? mbuf : "", mlen);
+  std::free(mbuf);
+  if (writeFileAtomic(p, content))
+    g_last_saved_digest = std::hash<std::string>{}(content);
 }
 
 bool Config::loadState() {
@@ -320,10 +447,6 @@ bool Config::loadState() {
 void Config::saveState() const {
   const std::string p = statePath();
   mkdirFor(p);
-  FILE *f = std::fopen(p.c_str(), "w");
-  if (!f)
-    return;
-  fprintf(f, "# cava-viz internal state — do not edit\n");
-  fprintf(f, "last_source = %s\n", last_source.c_str());
-  std::fclose(f);
+  writeFileAtomic(p, "# cava-viz internal state — do not edit\nlast_source = " +
+                         last_source + "\n");
 }

@@ -6,12 +6,15 @@
 #include <string>
 #include <vector>
 
-// ── Shell utility
+// ── Subprocess helper
 // ─────────────────────────────────────────────────────────────
 
-/// Run a shell command and return the first line of stdout (trimmed).
-/// Returns "" on failure or empty output.
-std::string runCmd(const char *cmd);
+/// Run a program (no shell) and return its complete stdout.
+/// stdin/stderr are /dev/null.  Returns "" if the program can't be started,
+/// exits non-zero, or does not finish within timeout_ms (it is SIGKILLed and
+/// reaped in that case).  Output is capped at 64 KiB.
+std::string runProcess(const std::vector<std::string> &args,
+                       int timeout_ms = 1500);
 
 // ── Source enumeration
 // ────────────────────────────────────────────────────────
@@ -27,8 +30,14 @@ void printSources(const Config &cfg);
 // ── Monitor detection
 // ─────────────────────────────────────────────────────────
 
-/// Auto-detect the default PulseAudio/PipeWire monitor source via pactl.
-/// Result is cached and re-queried at most once every 5 seconds.
+/// Query the default monitor source RIGHT NOW via pactl (bounded by timeouts,
+/// may block up to ~2 s in the worst case).  Returns "" if unavailable.
+std::string queryDefaultMonitor();
+
+/// Default PulseAudio/PipeWire monitor source.  The first call queries
+/// synchronously; afterwards a background thread refreshes it every 5 s and
+/// this returns the cached value immediately, so it is safe to call from the
+/// render loop even if the sound server hangs.
 std::string detectMonitor();
 
 // ── Audio backend factory

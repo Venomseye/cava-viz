@@ -196,7 +196,7 @@ static void applyRendererConfig(Renderer &r, const Config &cfg,
 
 // ─────────────────────────────────────────────────────────────────────────────
 int main(int argc, char *argv[]) {
-  struct sigaction sa{};
+  struct sigaction sa {};
   sa.sa_handler = sig_handler;
   sigemptyset(&sa.sa_mask);
   sigaction(SIGINT, &sa, nullptr);
@@ -413,10 +413,11 @@ int main(int argc, char *argv[]) {
   auto fps_tp = Clock::now();
   const int WATCH = target_fps * 2;
 
+
   // Absolute-deadline frame limiter (Linux): initialise the first deadline
   // to now so the first iteration sleeps for exactly one budget period.
 #ifdef __linux__
-  struct timespec t_deadline{};
+  struct timespec t_deadline {};
   clock_gettime(CLOCK_MONOTONIC, &t_deadline);
 #endif
 
@@ -465,24 +466,30 @@ int main(int argc, char *argv[]) {
           const auto *ev = reinterpret_cast<const struct inotify_event *>(p);
 
           if (ev->wd == wd_cfg && ev->len > 0 && cfg_file == ev->name) {
-            // ── Config file changed ───────────────────────────────
-            Config nc;
-            nc.last_source = cfg.last_source;
-            if (nc.load()) {
-              const bool stereo_changed = (nc.stereo != cfg.stereo);
-              cfg = nc;
-              applyRendererConfig(renderer, cfg, force_auto_width);
-              applyFFTConfig(fft, cfg);
-              renderer.notifyChange();
-              if (stereo_changed) {
-                restartCapture();
-                if (audio) {
-                  renderer.setSourceName(active_source);
-                  renderer.showFeedback(cfg.stereo ? "Stereo" : "Mono");
+            // Our own save() (key press) also fires this event.  If the file
+            // on disk is exactly what we last wrote there is nothing to
+            // reload — skipping avoids a redundant rebuildColors + full
+            // redraw on every key press.
+            if (Config::currentFileDigest() != Config::lastSavedDigest()) {
+              // ── Config file changed ───────────────────────────────
+              Config nc;
+              nc.last_source = cfg.last_source;
+              if (nc.load()) {
+                const bool stereo_changed = (nc.stereo != cfg.stereo);
+                cfg = nc;
+                applyRendererConfig(renderer, cfg, force_auto_width);
+                applyFFTConfig(fft, cfg);
+                renderer.notifyChange();
+                if (stereo_changed) {
+                  restartCapture();
+                  if (audio) {
+                    renderer.setSourceName(active_source);
+                    renderer.showFeedback(cfg.stereo ? "Stereo" : "Mono");
+                  }
                 }
               }
+              break;
             }
-            break;
 
           } else if (ev->wd == wd_themes) {
             // ── A .theme file was added, edited, or removed ───────

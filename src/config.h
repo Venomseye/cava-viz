@@ -1,4 +1,5 @@
 #pragma once
+#include <cstddef>
 #include <string>
 
 struct Config {
@@ -40,7 +41,13 @@ struct Config {
   static std::string statePath();  // ~/.local/state/cava-viz/state
 
   bool load();
-  void save() const;
+  void save() const; // atomic (tmp + rename); skips the write if nothing changed
+
+  // Digest of the bytes save() most recently wrote (0 = never saved).
+  // main() compares it with currentFileDigest() on an inotify event to
+  // recognise — and ignore — the event caused by its own save().
+  static std::size_t lastSavedDigest();
+  static std::size_t currentFileDigest(); // 0 if the config can't be read
 
   // Internal state — stored separately in statePath(), not configPath().
   std::string last_source;

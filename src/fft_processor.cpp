@@ -311,7 +311,7 @@ bool FFTProcessor::execute(int num_bars, float /*fps*/) {
             for (int n = 0; n < fill; ++n) {
                 const size_t idx = (ring_wpos_ + rsize - 1 - n) % rsize;
                 input_buf_[n] = ring_[idx];
-                if (ring_[idx] != 0.0) silence = false;
+                if (std::fabs(ring_[idx]) > SILENCE_PEAK) silence = false;
             }
         }
     } else {
@@ -382,23 +382,29 @@ bool FFTProcessor::execute(int num_bars, float /*fps*/) {
     }
 
     // ── Stereo correlation ────────────────────────────────────────────────────
-    // Compute normalised cross-correlation of L and R bar magnitudes.
-    // EMA-smoothed over time to avoid triggering on single quiet frames.
+    // Normalised cross-correlation of the (Hann-windowed) L and R WAVEFORMS.
+    // (The previous version correlated bar MAGNITUDES.  Those are always
+    // positive and share the same spectral tilt, so two completely unrelated
+    // channels still scored ~1.0 and auto-mono collapsed genuine stereo.)
+    //   1.0  = identical (true mono)     0.0 = unrelated     -1.0 = inverted
+    // EMA-smoothed so a single odd frame can't flip the state.  On silence the
+    // correlation is undefined, so the EMA simply holds.
     // When auto_mono_ is enabled and corr_ema_ exceeds the ON threshold,
     // barsR is set equal to barsL in the output section below.
     if (channels_ == 2) {
         double sum_ll = 0.0, sum_rr = 0.0, sum_lr = 0.0;
-        for (int n = 0; n < num_bars; ++n) {
-            const double l = cava_out_[n];
-            const double r = cava_out_[n + num_bars];
+        for (int i = 0; i < fft_buf_size_; ++i) {
+            const double l = in_mid_l_[i];
+            const double r = in_mid_r_[i];
             sum_ll += l * l;
             sum_rr += r * r;
             sum_lr += l * r;
         }
-        double denom = std::sqrt(sum_ll * sum_rr);
-        double corr  = (denom > 1e-12) ? (sum_lr / denom) : 1.0;
-        corr  = std::clamp(corr, -1.0, 1.0);
-        corr_ema_ = corr_ema_ * (1.0 - CORR_EMA_K) + corr * CORR_EMA_K;
+        const double denom = std::sqrt(sum_ll * sum_rr);
+        if (denom > 1.0) {
+            const double corr = std::clamp(sum_lr / denom, -1.0, 1.0);
+            corr_ema_ = corr_ema_ * (1.0 - CORR_EMA_K) + corr * CORR_EMA_K;
+        }
 
         if (auto_mono_) {
             if (!auto_mono_collapsed_ && corr_ema_ >= MONO_CORR_ON)
