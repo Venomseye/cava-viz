@@ -30,6 +30,10 @@ void printSources(const Config &cfg);
 // ── Monitor detection
 // ─────────────────────────────────────────────────────────
 
+/// Human-readable name of a source for the HUD ("" stays "",
+/// AudioCapture::MIC_SOURCE becomes "default microphone").
+std::string sourceLabel(const std::string &source);
+
 /// Query the default monitor source RIGHT NOW via pactl (bounded by timeouts,
 /// may block up to ~2 s in the worst case).  Returns "" if unavailable.
 std::string queryDefaultMonitor();

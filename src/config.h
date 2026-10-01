@@ -40,6 +40,18 @@ struct Config {
   static std::string configPath(); // ~/.config/cava-viz/config
   static std::string statePath();  // ~/.local/state/cava-viz/state
 
+  // ── Command-line overrides (-t, -f) ───────────────────────────────────────
+  // These apply to the current session only.  While a flag is set, save()
+  // never writes that key (the file keeps whatever it had), so
+  // `viz -t 6 -f 30` followed by an unrelated key press no longer rewrites
+  // the user's config.  An interactive change clears the flag.
+  bool cli_theme = false;
+  bool cli_fps = false;
+
+  /// After loading a fresh Config (reload), re-apply the overrides of `prev`
+  /// so the command line keeps winning over the file for this session.
+  void inheritCliOverrides(const Config &prev);
+
   bool load();
   void save() const; // atomic (tmp + rename); skips the write if nothing changed
 

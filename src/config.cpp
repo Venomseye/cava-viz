@@ -141,6 +141,17 @@ std::size_t Config::currentFileDigest() {
   return std::hash<std::string>{}(s);
 }
 
+void Config::inheritCliOverrides(const Config &prev) {
+  if (prev.cli_theme) {
+    theme = prev.theme;
+    cli_theme = true;
+  }
+  if (prev.cli_fps) {
+    fps = prev.fps;
+    cli_fps = true;
+  }
+}
+
 std::string Config::configPath() {
   return xdgBase("XDG_CONFIG_HOME", "/.config") + "/cava-viz/config";
 }
@@ -277,8 +288,14 @@ void Config::save() const {
     return buf;
   };
 
+  // A session-only CLI override must never reach the file.  When the file has
+  // to be created from scratch, write the built-in default for that key.
+  const Config defaults;
+  const int theme_out = cli_theme ? defaults.theme : theme;
+  const int fps_out = cli_fps ? defaults.fps : fps;
+
   const std::vector<KV> kvs = {
-      {"theme", std::to_string(theme)},
+      {"theme", std::to_string(theme_out)},
       {"bar_width", std::to_string(bar_width)},
       {"gap_width", std::to_string(gap_width)},
       {"hud_pinned", hud_pinned ? "1" : "0"},
@@ -295,7 +312,7 @@ void Config::save() const {
       {"auto_mono", auto_mono ? "1" : "0"},
       {"sensitivity", fmtf(sensitivity, 2)},
       {"auto_sens", auto_sens ? "1" : "0"},
-      {"fps", std::to_string(fps)},
+      {"fps", std::to_string(fps_out)},
   };
 
   // ── Try to read existing file ─────────────────────────────────────────────
@@ -328,8 +345,12 @@ void Config::save() const {
         continue;
       for (std::size_t i = 0; i < kvs.size(); ++i) {
         if (kvs[i].first == k) {
-          // Keep the user's line verbatim unless the value really changed.
-          if (!sameValue(vbuf, kvs[i].second))
+          // Keep the user's line verbatim unless the value really changed,
+          // and never touch a key that is overridden on the command line.
+          const bool pinned_by_cli =
+              (kvs[i].first == "theme" && cli_theme) ||
+              (kvs[i].first == "fps" && cli_fps);
+          if (!pinned_by_cli && !sameValue(vbuf, kvs[i].second))
             line = kvs[i].first + " = " + kvs[i].second + "\n";
           written[i] = true;
           break;
@@ -372,7 +393,7 @@ void Config::save() const {
       "# ── Visual ──────────────────────────────────────────────────────\n");
   fprintf(f, "# 0=Fire 1=Plasma 2=Neon 3=Teal 4=Sunset 5=Candy\n");
   fprintf(f, "# 6=Aurora 7=Inferno 8=White 9=Rose 10=Mermaid 11=Vapor\n");
-  fprintf(f, "theme          = %d\n", theme);
+  fprintf(f, "theme          = %d\n", theme_out);
   fprintf(f, "bar_width      = %d\n", bar_width);
   fprintf(f, "gap_width      = %d\n", gap_width);
   fprintf(f, "hud_pinned     = %d\n", hud_pinned ? 1 : 0);
@@ -421,7 +442,7 @@ void Config::save() const {
 
   fprintf(f, "\n# ── Performance "
              "──────────────────────────────────────────────────\n");
-  fprintf(f, "fps            = %d\n", fps);
+  fprintf(f, "fps            = %d\n", fps_out);
 
   std::fclose(f); // flushes into mbuf/mlen
   content.assign(mbuf ? mbuf : "", mlen);

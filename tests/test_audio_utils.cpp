@@ -74,6 +74,13 @@ int main() {
   CHECK(waitpid(-1, nullptr, WNOHANG) == -1 && errno == ECHILD,
         "no unreaped children");
 
+  // HUD labels: the mic sentinel is never shown raw.
+  CHECK(sourceLabel(AudioCapture::MIC_SOURCE) == "default microphone",
+        "mic sentinel gets a human label");
+  CHECK(sourceLabel("alsa_output.pci.monitor") == "alsa_output.pci.monitor",
+        "real source names pass through");
+  CHECK(sourceLabel("").empty(), "empty source stays empty");
+
   // detectMonitor(): first call bounded, later calls instant (cached).
   {
     const auto t0 = Clock::now();

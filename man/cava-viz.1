@@ -35,23 +35,33 @@ Default:
 .BI \-s " source"
 Explicit capture device name (as listed by
 .BR --list-sources ).
-Bypasses auto-detection entirely.
+Bypasses auto-detection entirely: the default-sink follower and the
+"no audio heard" retry are disabled, but if the stream dies (device unplugged,
+server restarted) the same device is re-opened automatically, retrying until it
+returns.
 .TP
 .B \-M
-Capture from the default microphone instead of a monitor source.
+Capture from the default microphone (default input device) instead of the
+system audio output.  Like
+.BR \-s ,
+it reconnects to the same input if the stream dies.
 .TP
 .BI \-r " Hz"
 PCM sample rate in Hz. Default:
 .BR 44100 .
 .TP
 .BI \-t " index"
-Starting theme index.
+Starting theme index.  Applies to this session only: it is never written to the
+configuration file (choosing a theme with
+.B t
+still saves it).
 Built-in themes occupy indices 0\(en11; user themes follow in alphabetical
 filename order starting at index 12.
 .TP
 .BI \-f " fps"
 Target frame rate. Accepted range: 10\(en240. Default:
 .BR 60 .
+Applies to this session only and is not written to the configuration file.
 .TP
 .B \-w
 Automatically compute bar width to fill the terminal at startup.

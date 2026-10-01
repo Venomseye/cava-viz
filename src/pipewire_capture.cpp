@@ -17,7 +17,8 @@ PipeWireCapture::~PipeWireCapture() {
 }
 
 bool PipeWireCapture::init(const std::string &src, int sr, int ch) {
-  source_ = src;
+  mic_ = (src == MIC_SOURCE);
+  source_ = mic_ ? std::string() : src;
   sample_rate_ = sr;
   channels_ = ch;
   neg_channels_.store(ch, std::memory_order_relaxed);
@@ -62,6 +63,10 @@ bool PipeWireCapture::start(AudioCallback cb) {
   if (!source_.empty()) {
     // Connect to a specific named node / monitor source
     pw_properties_set(props, PW_KEY_TARGET_OBJECT, source_.c_str());
+  } else if (mic_) {
+    // Microphone: a plain Capture stream with no target and no
+    // stream.capture.sink is routed by the session manager to the DEFAULT
+    // SOURCE (default input device).
   } else {
     // stream.capture.sink=true attaches this record stream to the DEFAULT
     // OUTPUT SINK (i.e. system audio loopback), not the microphone.

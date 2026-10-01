@@ -15,6 +15,11 @@ public:
   using AudioCallback =
       std::function<void(const float *samples, std::size_t count, int channels)>;
 
+  /// Pseudo source name meaning "the default MICROPHONE / default input
+  /// device" (as opposed to "" = what's playing, i.e. the default output's
+  /// monitor).  Not a real device name, so it can't clash with one.
+  static constexpr const char *MIC_SOURCE = "@default-mic@";
+
   virtual ~AudioCapture() = default;
 
   /// Store configuration (does not open device).

@@ -12,7 +12,12 @@ PulseAudioCapture::PulseAudioCapture() = default;
 PulseAudioCapture::~PulseAudioCapture() { stop(); }
 
 bool PulseAudioCapture::init(const std::string &src, int sr, int ch) {
-  if (src.empty()) {
+  if (src == MIC_SOURCE) {
+    // NULL device + PA_STREAM_RECORD = the server's default SOURCE, i.e. the
+    // microphone / default input.  (Before, -M fell into the branch below
+    // and captured the system-audio monitor instead.)
+    source_.clear();
+  } else if (src.empty()) {
     // Auto-detect: find the default output monitor so we capture system
     // audio rather than the microphone.
     source_ = detectMonitor(); // cached, non-blocking after first call

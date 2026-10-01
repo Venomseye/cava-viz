@@ -412,6 +412,62 @@ static void testSymlinkedConfig() {
   check_int("no temp files in dotfiles dir", countTmpFiles(real_dir), 0);
 }
 
+static void testCliOverridesNotPersisted() {
+  printf("\n[CLI overrides (-t / -f) are session-only]\n");
+  TempDir td;
+  const fs::path cfgp = Config::configPath();
+  fs::create_directories(cfgp.parent_path());
+  { std::ofstream(cfgp) << "theme = 2\nfps = 45\ngravity = 1.00\n"; }
+
+  Config c;
+  c.load();
+  c.theme = 6;
+  c.cli_theme = true; // as if `viz -t 6 -f 30`
+  c.fps = 30;
+  c.cli_fps = true;
+  c.gravity = 2.5f; // an unrelated, genuinely persisted change
+  c.save();
+
+  Config r;
+  r.load();
+  check_int("overridden theme not written (file keeps 2)", r.theme, 2);
+  check_int("overridden fps not written (file keeps 45)", r.fps, 45);
+  check_float("unrelated change IS written", r.gravity, 2.5f);
+
+  // An interactive choice clears the flag and is persisted.
+  c.theme = 4;
+  c.cli_theme = false;
+  c.save();
+  Config r2;
+  r2.load();
+  check_int("interactive theme change is persisted", r2.theme, 4);
+  check_int("fps override still not persisted", r2.fps, 45);
+
+  // A reload keeps the command line winning over the file.
+  Config fresh;
+  fresh.load(); // theme 4 / fps 45 from disk
+  fresh.inheritCliOverrides(c);
+  check_int("reload keeps CLI fps", fresh.fps, 30);
+  check_int("reload takes theme from file once it is no longer an override",
+            fresh.theme, 4);
+  Config withTheme;
+  withTheme.theme = 9;
+  withTheme.cli_theme = true;
+  fresh.inheritCliOverrides(withTheme);
+  check_int("reload re-applies a CLI theme", fresh.theme, 9);
+
+  // Creating a config from scratch must not bake the override in either.
+  fs::remove(cfgp);
+  Config n;
+  n.theme = 7;
+  n.cli_theme = true;
+  n.save();
+  Config r3;
+  r3.load();
+  check_bool("fresh file gets the default theme, not the CLI one",
+             r3.theme != 7, true);
+}
+
 int main() {
   printf("cava-viz config test suite\n");
   printf("===========================\n");
@@ -425,6 +481,7 @@ int main() {
   testThemeIndexNotClamped();
   testAtomicSave();
   testSymlinkedConfig();
+  testCliOverridesNotPersisted();
 
   printf("\n===========================\n");
   printf("Results: %d/%d passed", tests_run - tests_failed, tests_run);

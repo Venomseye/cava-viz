@@ -268,11 +268,14 @@ int main(int argc, char *argv[]) {
       break;
     case 't': {
       const int ti = argInt("-t", optarg);
-      if (ti >= 0)
+      if (ti >= 0) {
         cfg.theme = ti;
+        cfg.cli_theme = true; // session-only: never persisted
+      }
     } break;
     case 'f':
       cfg.fps = std::max(1, argInt("-f", optarg));
+      cfg.cli_fps = true; // session-only: never persisted
       break;
     case 'w':
       force_auto_width = true;
@@ -325,6 +328,13 @@ int main(int argc, char *argv[]) {
   //               source name can't cause a reconnect every watchdog tick.
   static constexpr int SILENCE_BASE_SEC = 5;
   static constexpr int SILENCE_MAX_SEC = 60;
+  static constexpr int RECONNECT_BACKOFF_BASE_SEC = 2;
+  static constexpr int RECONNECT_BACKOFF_MAX_SEC = 10;
+  const bool pinned = use_mic || !cli_source.empty();
+  const std::string pinned_src =
+      use_mic ? std::string(AudioCapture::MIC_SOURCE) : cli_source;
+  long next_attempt_frame = 0; // earliest frame for the next retry when down
+  int fail_backoff_secs = RECONNECT_BACKOFF_BASE_SEC;
   bool heard_audio = false;
   int silent_frames = 0;
   int silent_retry_secs = SILENCE_BASE_SEC;
@@ -369,6 +379,10 @@ int main(int argc, char *argv[]) {
   Renderer renderer;
   if (!renderer.init()) {
     audio->stop();
+    std::fprintf(stderr,
+                 "cava-viz: could not initialise the terminal UI.\n"
+                 "  Run it in an interactive terminal (stdout must be a tty) "
+                 "and make sure TERM is set (e.g. xterm-256color).\n");
     return 1;
   }
   // Load user themes before applyRendererConfig so cfg.theme (which may be
@@ -377,7 +391,7 @@ int main(int argc, char *argv[]) {
   applyRendererConfig(renderer, cfg, force_auto_width);
   if (force_auto_width)
     renderer.setBarWidth(renderer.autoBarWidth());
-  renderer.setSourceName(active_source);
+  renderer.setSourceName(sourceLabel(active_source));
   renderer.notifyChange();
 
   // ── inotify ───────────────────────────────────────────────────────────────
@@ -418,7 +432,8 @@ int main(int argc, char *argv[]) {
   const int target_fps = std::clamp(cfg.fps, 10, 240);
   const us budget(1'000'000 / target_fps);
   double fps = static_cast<double>(target_fps);
-  int fcount = 0, frames = 0;
+  int fcount = 0;
+  long frames = 0;
   auto fps_tp = Clock::now();
   const int WATCH = target_fps * 2;
 
@@ -454,6 +469,7 @@ int main(int argc, char *argv[]) {
       Config nc;
       nc.last_source = cfg.last_source;
       if (nc.load()) {
+        nc.inheritCliOverrides(cfg); // -t / -f keep winning this session
         const bool stereo_changed = (nc.stereo != cfg.stereo);
         cfg = nc;
         applyRendererConfig(renderer, cfg, force_auto_width);
@@ -464,7 +480,7 @@ int main(int argc, char *argv[]) {
         if (stereo_changed) {
           restartCapture();
           if (audio)
-            renderer.setSourceName(active_source);
+            renderer.setSourceName(sourceLabel(active_source));
         }
       }
     }
@@ -475,11 +491,13 @@ int main(int argc, char *argv[]) {
       alignas(struct inotify_event) char
           ibuf[sizeof(struct inotify_event) + NAME_MAX + 1];
       ssize_t ilen;
+      bool cfg_reloaded = false;
       while ((ilen = read(inotify_fd, ibuf, sizeof(ibuf))) > 0) {
         for (const char *p = ibuf; p < ibuf + ilen;) {
           const auto *ev = reinterpret_cast<const struct inotify_event *>(p);
 
-          if (ev->wd == wd_cfg && ev->len > 0 && cfg_file == ev->name) {
+          if (ev->wd == wd_cfg && ev->len > 0 && cfg_file == ev->name &&
+              !cfg_reloaded) {
             // Our own save() (key press) also fires this event.  If the file
             // on disk is exactly what we last wrote there is nothing to
             // reload — skipping avoids a redundant rebuildColors + full
@@ -489,6 +507,7 @@ int main(int argc, char *argv[]) {
               Config nc;
               nc.last_source = cfg.last_source;
               if (nc.load()) {
+                nc.inheritCliOverrides(cfg); // -t / -f keep winning
                 const bool stereo_changed = (nc.stereo != cfg.stereo);
                 cfg = nc;
                 applyRendererConfig(renderer, cfg, force_auto_width);
@@ -497,12 +516,15 @@ int main(int argc, char *argv[]) {
                 if (stereo_changed) {
                   restartCapture();
                   if (audio) {
-                    renderer.setSourceName(active_source);
+                    renderer.setSourceName(sourceLabel(active_source));
                     renderer.showFeedback(cfg.stereo ? "Stereo" : "Mono");
                   }
                 }
               }
-              break;
+              // One reload per batch (CLOSE_WRITE + MOVED_TO often arrive
+              // together).  The rest of the batch — e.g. theme events — must
+              // still be processed, so no `break` here.
+              cfg_reloaded = true;
             }
 
           } else if (ev->wd == wd_themes) {
@@ -529,25 +551,33 @@ int main(int argc, char *argv[]) {
 #endif
 
     // ── Watchdog ──────────────────────────────────────────────────────────
-    if (!use_mic && cli_source.empty() && (frames % WATCH == 0)) {
-      // No capture at all (a previous reconnect failed) also counts, otherwise
-      // a failed reconnect would never be retried.
-      bool reconnect = !audio || audio->hasFailed();
-
-      // Default sink changed since we connected.
-      if (!reconnect && !tracked_mon.empty()) {
-        const std::string cur = detectMonitor();
-        if (!cur.empty() && cur != tracked_mon)
-          reconnect = true;
-      }
-
-      // Never heard anything on this connection: probably the wrong source.
-      // Retry with exponential backoff (5s, 10s, 20s ... 60s).  Once audio
-      // has been heard, silence (paused player) never triggers this.
-      if (!reconnect && !heard_audio && frames > target_fps &&
-          silent_frames >= target_fps * silent_retry_secs) {
+    // Auto mode (default): follows the default sink, retries a source that
+    // never produced audio, and falls back through several sources.
+    // Pinned mode (-s <source> or -M): the user chose the source, so never
+    // second-guess it — only RE-OPEN THE SAME ONE if the stream dies (device
+    // unplugged, server restarted) and keep retrying until it comes back.
+    if (frames % WATCH == 0) {
+      bool reconnect = false;
+      if (!audio)
+        reconnect = (frames >= next_attempt_frame); // last attempt failed
+      else if (audio->hasFailed())
         reconnect = true;
-        silent_retry_secs = std::min(silent_retry_secs * 2, SILENCE_MAX_SEC);
+
+      if (!pinned && audio && !reconnect) {
+        // Default sink changed since we connected.
+        if (!tracked_mon.empty()) {
+          const std::string cur = detectMonitor();
+          if (!cur.empty() && cur != tracked_mon)
+            reconnect = true;
+        }
+        // Never heard anything on this connection: probably the wrong source.
+        // Retry with exponential backoff (5s, 10s, 20s ... 60s).  Once audio
+        // has been heard, silence (paused player) never triggers this.
+        if (!reconnect && !heard_audio && frames > target_fps &&
+            silent_frames >= target_fps * silent_retry_secs) {
+          reconnect = true;
+          silent_retry_secs = std::min(silent_retry_secs * 2, SILENCE_MAX_SEC);
+        }
       }
 
       if (reconnect) {
@@ -556,26 +586,42 @@ int main(int argc, char *argv[]) {
           audio->stop();
           audio.reset();
         }
-        const std::string mon = detectMonitor();
+        const std::string mon = pinned ? std::string() : detectMonitor();
         AudioCapture::AudioCallback cb = [&fft](const float *s, std::size_t n,
                                                 int ch) {
           fft.addSamples(s, n, ch);
         };
-        for (const std::string &src : {std::string(""), mon, active_source}) {
+        const std::vector<std::string> candidates =
+            pinned ? std::vector<std::string>{pinned_src}
+                   : std::vector<std::string>{std::string(), mon,
+                                              active_source};
+        for (const std::string &src : candidates) {
           audio = makeAudio(backend, src, sample_rate, channels, cb);
           if (audio) {
             bname = audio->backendName();
             // Always record what we actually connected to (including "").
             active_source = src;
-            if (!src.empty()) {
+            if (!pinned && !src.empty()) {
               cfg.last_source = src;
               cfg.saveState();
             }
-            renderer.setSourceName(active_source);
+            renderer.setSourceName(sourceLabel(active_source));
             break;
           }
         }
-        tracked_mon = mon;
+        if (audio) {
+          fail_backoff_secs = RECONNECT_BACKOFF_BASE_SEC;
+          next_attempt_frame = 0;
+        } else {
+          // Still down: wait longer each time (2s, 4s, 8s, then every 10s) instead of
+          // hammering the sound server.
+          next_attempt_frame =
+              frames + static_cast<long>(target_fps) * fail_backoff_secs;
+          fail_backoff_secs =
+              std::min(fail_backoff_secs * 2, RECONNECT_BACKOFF_MAX_SEC);
+        }
+        if (!pinned)
+          tracked_mon = mon;
       }
     }
 
@@ -600,6 +646,7 @@ int main(int argc, char *argv[]) {
 
       case 't':
         cfg.theme = renderer.nextTheme(); // int: 0..COUNT-1+user themes
+        cfg.cli_theme = false; // the user chose this one: persist it
         cfg.save();
         break;
 
@@ -654,7 +701,7 @@ int main(int argc, char *argv[]) {
         cfg.stereo = !cfg.stereo;
         restartCapture();
         if (audio) {
-          renderer.setSourceName(active_source);
+          renderer.setSourceName(sourceLabel(active_source));
           renderer.showFeedback(cfg.stereo ? "Stereo" : "Mono");
           cfg.save();
         } else {

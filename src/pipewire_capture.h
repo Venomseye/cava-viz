@@ -43,6 +43,7 @@ private:
 
   AudioCallback callback_;
   std::string source_;
+  bool mic_{false}; // capture the default input instead of the system mix
   int sample_rate_{44100};
   int channels_{1};
   std::atomic<int> neg_channels_{1}; // as negotiated; set in onParamChanged

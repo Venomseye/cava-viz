@@ -89,11 +89,11 @@ viz [OPTIONS]
 | Flag | Description | Default |
 |---|---|---|
 | `-b <pulse\|pipewire\|auto>` | Audio backend | `auto` |
-| `-s <source>` | Explicit capture device | *(auto-detect monitor)* |
-| `-M` | Capture from microphone | off |
-| `-r <Hz>` | Sample rate | `44100` |
-| `-t <index>` | Starting theme (0–11 built-in, 12+ user) | `0` |
-| `-f <n>` | Target FPS | `60` |
+| `-s <source>` | Explicit capture device (reconnects to this same device if it drops) | *(auto-detect monitor)* |
+| `-M` | Capture from the default microphone / input device (reconnects if it drops) | off |
+| `-r <Hz>` | Sample rate (8000–192000) | `44100` |
+| `-t <index>` | Starting theme (0–11 built-in, 12+ user); this session only, not saved | `0` |
+| `-f <n>` | Target FPS; this session only, not saved | `60` |
 | `-w` | Auto bar width to fill terminal | off |
 | `--list-sources` | Print available audio sources and exit | |
 | `--check` | Validate config and audio setup, then exit | |

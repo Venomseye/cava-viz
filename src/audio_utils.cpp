@@ -284,6 +284,10 @@ std::string detectMonitor() {
   return poller.get();
 }
 
+std::string sourceLabel(const std::string &source) {
+  return source == AudioCapture::MIC_SOURCE ? "default microphone" : source;
+}
+
 // ── Audio backend factory
 // ─────────────────────────────────────────────────────
 
@@ -338,12 +342,8 @@ void doStartAudio(const std::string &backend, const std::string &cli_source,
     active_source = cli_source;
     audio = makeAudio(backend, active_source, sample_rate, channels, cb);
   } else if (use_mic) {
-    active_source = "";
+    active_source = AudioCapture::MIC_SOURCE;
     audio = makeAudio(backend, active_source, sample_rate, channels, cb);
-    if (!audio) {
-      active_source = "default";
-      audio = makeAudio(backend, active_source, sample_rate, channels, cb);
-    }
   } else {
     active_source = "";
     audio = makeAudio(backend, active_source, sample_rate, channels, cb);
