@@ -43,7 +43,8 @@ public:
   static constexpr int HUD_ROWS = 2;
 
   // Beat flash: avg of bars 0-3 must reach this to trigger A_BOLD overlay.
-  static constexpr float BEAT_THRESHOLD = 0.55f;
+  static constexpr float BEAT_THRESHOLD = 0.55f;     // flash ON at/above
+  static constexpr float BEAT_THRESHOLD_OFF = 0.45f; // flash OFF below (hysteresis)
   // Colour cycle: hue rotation speed in degrees per second.
   static constexpr float HUE_DEG_PER_SEC = 30.0f;
 
@@ -53,6 +54,8 @@ public:
   Renderer &operator=(const Renderer &) = delete;
 
   bool init();
+  /// False if no UTF-8 locale could be activated (bars may render wrongly).
+  bool utf8Ok() const { return utf8_ok_; }
 
   void render(const std::vector<float> &bars_l,
               const std::vector<float> &bars_r, double fps = 60.0,
@@ -152,6 +155,7 @@ private:
 
   std::string source_name_;
   bool beat_flash_{false};
+  bool utf8_ok_{true};
 
   std::vector<int> prev_l_, prev_r_;
   int prev_avail_{0};

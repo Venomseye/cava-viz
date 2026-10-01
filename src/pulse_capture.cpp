@@ -46,7 +46,7 @@ bool PulseAudioCapture::start(AudioCallback cb) {
   ss.channels = static_cast<uint8_t>(channels_);
 
   int err = 0;
-  handle_ = pa_simple_new(nullptr, "cava-viz", PA_STREAM_RECORD,
+  handle_ = pa_simple_new(nullptr, "viz", PA_STREAM_RECORD,
                           source_.empty() ? nullptr : source_.c_str(),
                           "capture", &ss, nullptr, nullptr, &err);
 

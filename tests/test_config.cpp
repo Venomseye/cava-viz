@@ -77,7 +77,7 @@ struct TempDir {
   fs::path path;
 
   TempDir() {
-    char tmpl[] = "/tmp/cava_viz_test_XXXXXX";
+    char tmpl[] = "/tmp/viz_test_XXXXXX";
     const char *d = mkdtemp(tmpl);
     if (!d) {
       perror("mkdtemp");
@@ -391,7 +391,7 @@ static void testSymlinkedConfig() {
   fs::create_directories(cfgp.parent_path());
   const fs::path real_dir = td.path / "dotfiles";
   fs::create_directories(real_dir);
-  const fs::path real = real_dir / "cava-viz.conf";
+  const fs::path real = real_dir / "viz.conf";
   { std::ofstream(real) << "theme = 4\n# my note\n"; }
   fs::create_symlink(real, cfgp);
 
@@ -469,7 +469,7 @@ static void testCliOverridesNotPersisted() {
 }
 
 int main() {
-  printf("cava-viz config test suite\n");
+  printf("viz config test suite\n");
   printf("===========================\n");
 
   testRoundTrip();

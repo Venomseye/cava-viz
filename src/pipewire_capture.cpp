@@ -58,7 +58,7 @@ bool PipeWireCapture::start(AudioCallback cb) {
 
   struct pw_properties *props = pw_properties_new(
       PW_KEY_MEDIA_TYPE, "Audio", PW_KEY_MEDIA_CATEGORY, "Capture",
-      PW_KEY_MEDIA_ROLE, "Music", PW_KEY_APP_NAME, "cava-viz", nullptr);
+      PW_KEY_MEDIA_ROLE, "Music", PW_KEY_APP_NAME, "viz", nullptr);
 
   if (!source_.empty()) {
     // Connect to a specific named node / monitor source
@@ -81,7 +81,7 @@ bool PipeWireCapture::start(AudioCallback cb) {
   std::snprintf(lat_buf, sizeof(lat_buf), "512/%d", sample_rate_);
   pw_properties_set(props, PW_KEY_NODE_LATENCY, lat_buf);
 
-  stream_ = pw_stream_new(core_, "cava-viz-capture", props);
+  stream_ = pw_stream_new(core_, "viz-capture", props);
   if (!stream_) {
     pw_core_disconnect(core_);
     core_ = nullptr;

@@ -1,4 +1,4 @@
-# cava-viz
+# viz
 
 A terminal audio visualizer built on the [CAVA](https://github.com/karlstav/cava) algorithm — dual-FFT analysis, Monstercat smoothing, per-bar EQ, and autosensitivity, rendered in ncurses with truecolor gradients. Also runs headless as a bar-mode data source for Waybar, Polybar, eww, tmux, and any script.
 
@@ -43,8 +43,8 @@ At least one audio backend must be present.
 ## Installation
 
 ```bash
-git clone https://github.com/Venomseye/cava-viz.git
-cd cava-viz
+git clone https://github.com/Venomseye/viz.git
+cd viz
 chmod +x install.sh uninstall.sh
 ./install.sh
 ```
@@ -268,6 +268,8 @@ Follows the [XDG Base Directory spec](https://specifications.freedesktop.org/bas
 
 Override `XDG_CONFIG_HOME` or `XDG_STATE_HOME` to relocate everything.
 
+The directory is still called `cava-viz` (the project's earlier name) so existing configs and themes keep working after the rename to `viz`.
+
 ---
 
 ## Troubleshooting
@@ -324,15 +326,17 @@ If it prints `{"text":"..."}` lines, the format is correct — check your Waybar
 # Run individual test suites
 cd build && ctest --output-on-failure
 
-# Check formatting (dry run)
-find src tests -name "*.cpp" -o -name "*.h" | grep -v fft_processor \
-  | xargs clang-format --style=file --dry-run -Werror
+# Format everything (needs clang-format-18; same version CI uses)
+scripts/format.sh
+scripts/format.sh --check      # dry run, non-zero exit if anything would change
 
 # Lint
-clang-tidy -p build src/*.cpp   # excludes fft_processor.cpp via .clang-tidy
+clang-tidy -p build src/*.cpp
 ```
 
-The CI pipeline (`.github/workflows/ci.yml`) runs a formatting check, lint, and build + tests (Release and Debug+ASan, via `ctest`: config, user_theme and fft_processor suites) on every push and pull request.
+If the **Format** check fails in CI, the quickest fix is *Actions → Format code → Run workflow*: it formats the branch with the exact clang-format CI uses and commits the result.
+
+The CI pipeline (`.github/workflows/ci.yml`) runs a formatting check, lint, and build + tests (Release and Debug+ASan, via `ctest`: config, user_theme, fft_processor, audio_utils and text_utils suites) on every push and pull request.
 
 ---
 

@@ -74,7 +74,7 @@ static void check_float(const char *label, float got, float expected,
 struct TempDir {
   fs::path path;
   TempDir() {
-    char tmpl[] = "/tmp/cava_viz_theme_test_XXXXXX";
+    char tmpl[] = "/tmp/viz_theme_test_XXXXXX";
     const char *d = mkdtemp(tmpl);
     if (!d) {
       perror("mkdtemp");
@@ -316,7 +316,7 @@ static void testFirstLastClamped() {
 // ── main ─────────────────────────────────────────────────────────────────────
 
 int main() {
-  printf("cava-viz user_theme test suite\n");
+  printf("viz user_theme test suite\n");
   printf("================================\n");
 
   testValidTheme();

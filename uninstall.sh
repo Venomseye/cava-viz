@@ -59,12 +59,15 @@ else
 fi
 
 # ── Man page ──────────────────────────────────────────────────────────────────
-MAN_FILE="${INSTALL_PREFIX}/share/man/man1/cava-viz.1"
-if [ -f "$MAN_FILE" ]; then
-    info "Removing man page: $MAN_FILE"
-    remove "$MAN_FILE"
-    ok "Removed man page."
-fi
+# viz.1 is current; cava-viz.1 is what releases before the rename installed.
+for MAN_FILE in "${INSTALL_PREFIX}/share/man/man1/viz.1" \
+                "${INSTALL_PREFIX}/share/man/man1/cava-viz.1"; do
+    if [ -f "$MAN_FILE" ]; then
+        info "Removing man page: $MAN_FILE"
+        remove "$MAN_FILE"
+        ok "Removed man page."
+    fi
+done
 
 # ── Shell completions ─────────────────────────────────────────────────────────
 BASH_C="${INSTALL_PREFIX}/share/bash-completion/completions/viz"
@@ -82,12 +85,14 @@ done
 [ "$removed_completions" -eq 1 ] && ok "Removed shell completions."
 
 # ── Shared data (example themes) ──────────────────────────────────────────────
-DATA_DIR="${INSTALL_PREFIX}/share/cava-viz"
-if [ -d "$DATA_DIR" ]; then
-    info "Removing shared data: $DATA_DIR"
-    remove "$DATA_DIR"
-    ok "Removed shared data."
-fi
+for DATA_DIR in "${INSTALL_PREFIX}/share/viz" \
+                "${INSTALL_PREFIX}/share/cava-viz"; do   # cava-viz = pre-rename
+    if [ -d "$DATA_DIR" ]; then
+        info "Removing shared data: $DATA_DIR"
+        remove "$DATA_DIR"
+        ok "Removed shared data."
+    fi
+done
 
 # ── User config ───────────────────────────────────────────────────────────────
 CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/cava-viz"

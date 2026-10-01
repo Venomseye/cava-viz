@@ -7,8 +7,8 @@
 
 // Defined by CMakeLists.txt via target_compile_definitions; fall back to
 // "unknown" when the binary is built without CMake (e.g. a plain Makefile).
-#ifndef CAVA_VIZ_VERSION
-#define CAVA_VIZ_VERSION "unknown"
+#ifndef VIZ_VERSION
+#define VIZ_VERSION "unknown"
 #endif
 
 #include <algorithm>
@@ -98,7 +98,7 @@ static int doCheck(const Config &cfg) {
   const std::string mon = detectMonitor();
   bool ok = true;
 
-  printf("cava-viz %s — config check\n", CAVA_VIZ_VERSION);
+  printf("viz %s — config check\n", VIZ_VERSION);
   printf("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n");
 
   printf("Paths:\n");
@@ -179,7 +179,7 @@ static int argInt(const char *flag, const char *s) {
       throw std::invalid_argument("trailing chars");
     return v;
   } catch (...) {
-    std::fprintf(stderr, "cava-viz: '%s' expects an integer, got '%s'\n", flag,
+    std::fprintf(stderr, "viz: '%s' expects an integer, got '%s'\n", flag,
                  s);
     std::exit(1);
   }
@@ -244,7 +244,7 @@ int main(int argc, char *argv[]) {
       backend = optarg;
       if (backend != "auto" && backend != "pipewire" && backend != "pulse") {
         std::fprintf(stderr,
-                     "cava-viz: unknown backend '%s' (use auto, pipewire or "
+                     "viz: unknown backend '%s' (use auto, pipewire or "
                      "pulse)\n",
                      optarg);
         return 1;
@@ -260,7 +260,7 @@ int main(int argc, char *argv[]) {
       sample_rate = argInt("-r", optarg);
       if (sample_rate < 8000 || sample_rate > 192000) {
         std::fprintf(stderr,
-                     "cava-viz: -r must be between 8000 and 192000 Hz, got "
+                     "viz: -r must be between 8000 and 192000 Hz, got "
                      "%d\n",
                      sample_rate);
         return 1;
@@ -281,7 +281,7 @@ int main(int argc, char *argv[]) {
       force_auto_width = true;
       break;
     case 'V':
-      printf("cava-viz %s\n", CAVA_VIZ_VERSION);
+      printf("viz %s\n", VIZ_VERSION);
       return 0;
     case 'h':
       print_usage(argv[0]);
@@ -365,12 +365,12 @@ int main(int argc, char *argv[]) {
   if (!audio) {
 #if !defined(HAVE_PULSEAUDIO) && !defined(HAVE_PIPEWIRE)
     fprintf(stderr,
-            "cava-viz: no audio backend compiled in.\n"
+            "viz: no audio backend compiled in.\n"
             "  Install libpulse-dev (PulseAudio) or libpipewire-0.3-dev "
             "(PipeWire)\n"
             "  then rebuild: cd build && cmake .. && cmake --build .\n");
 #else
-    fprintf(stderr, "cava-viz: no audio backend started.\n");
+    fprintf(stderr, "viz: no audio backend started.\n");
 #endif
     return 1;
   }
@@ -380,7 +380,7 @@ int main(int argc, char *argv[]) {
   if (!renderer.init()) {
     audio->stop();
     std::fprintf(stderr,
-                 "cava-viz: could not initialise the terminal UI.\n"
+                 "viz: could not initialise the terminal UI.\n"
                  "  Run it in an interactive terminal (stdout must be a tty) "
                  "and make sure TERM is set (e.g. xterm-256color).\n");
     return 1;
@@ -389,6 +389,8 @@ int main(int argc, char *argv[]) {
   // a user theme index >= Theme::COUNT) validates and clamps correctly.
   renderer.setUserThemes(loadUserThemes());
   applyRendererConfig(renderer, cfg, force_auto_width);
+  if (!renderer.utf8Ok())
+    renderer.showFeedback("Locale is not UTF-8 - run with LANG=C.UTF-8");
   if (force_auto_width)
     renderer.setBarWidth(renderer.autoBarWidth());
   renderer.setSourceName(sourceLabel(active_source));

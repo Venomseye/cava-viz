@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(cava-viz VERSION 1.2.0 LANGUAGES CXX)
+project(viz VERSION 1.2.0 LANGUAGES CXX)
 
 # ── Language standard ──────────────────────────────────────────────────────────
 set(CMAKE_CXX_STANDARD 17)
@@ -44,6 +44,7 @@ set(CORE_SOURCES
     src/config.cpp
     src/user_theme.cpp
     src/audio_utils.cpp
+    src/text_utils.cpp
 )
 
 add_executable(viz ${CORE_SOURCES})
@@ -52,7 +53,7 @@ add_executable(viz ${CORE_SOURCES})
 # main.cpp guards against the macro being absent with a fallback definition,
 # so builds without CMake (e.g. a hand-written Makefile) still compile cleanly.
 target_compile_definitions(viz PRIVATE
-    CAVA_VIZ_VERSION="${PROJECT_VERSION}"
+    VIZ_VERSION="${PROJECT_VERSION}"
 )
 
 target_include_directories(viz PRIVATE
@@ -131,23 +132,23 @@ include(GNUInstallDirs)
 install(TARGETS viz DESTINATION ${CMAKE_INSTALL_BINDIR})
 
 # Man page
-install(FILES man/cava-viz.1
+install(FILES man/viz.1
     DESTINATION ${CMAKE_INSTALL_MANDIR}/man1)
 
 # Shell completions
-install(FILES completions/cava-viz.bash
+install(FILES completions/viz.bash
     DESTINATION ${CMAKE_INSTALL_DATADIR}/bash-completion/completions
     RENAME viz)
-install(FILES completions/cava-viz.zsh
+install(FILES completions/viz.zsh
     DESTINATION ${CMAKE_INSTALL_DATADIR}/zsh/site-functions
     RENAME _viz)
-install(FILES completions/cava-viz.fish
+install(FILES completions/viz.fish
     DESTINATION ${CMAKE_INSTALL_DATADIR}/fish/vendor_completions.d
     RENAME viz.fish)
 
 # Example user themes
 install(DIRECTORY examples/
-    DESTINATION ${CMAKE_INSTALL_DATADIR}/cava-viz/themes
+    DESTINATION ${CMAKE_INSTALL_DATADIR}/viz/themes
     FILES_MATCHING PATTERN "*.theme")
 
 # ── Tests ─────────────────────────────────────────────────────────────────────
@@ -204,6 +205,16 @@ if(BUILD_TESTS)
     set_target_properties(test_audio_utils PROPERTIES
         CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON)
     add_test(NAME audio_utils COMMAND test_audio_utils)
+
+    # UTF-8 helpers + beat-flash hysteresis (pure C++, no dependencies)
+    add_executable(test_text_utils
+        tests/test_text_utils.cpp
+        src/text_utils.cpp)
+    target_include_directories(test_text_utils PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    target_compile_options(test_text_utils PRIVATE -Wall -Wextra -Wpedantic)
+    set_target_properties(test_text_utils PROPERTIES
+        CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON)
+    add_test(NAME text_utils COMMAND test_text_utils)
 endif()
 
 # ── Summary ────────────────────────────────────────────────────────────────────

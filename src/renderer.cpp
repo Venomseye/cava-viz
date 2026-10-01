@@ -1,4 +1,7 @@
 #include "renderer.h"
+
+#include "beat_detect.h"
+#include "text_utils.h"
 #include "user_theme.h"
 #include <algorithm>
 #include <cmath>
@@ -340,7 +343,7 @@ void Renderer::applyNcursesSettings() {
 }
 
 bool Renderer::init() {
-  setlocale(LC_ALL, "");
+  utf8_ok_ = initUtf8Locale(); // must precede initscr()
   set_escdelay(20);
   applyTermOverride(); // must precede initscr()
   initscr();
@@ -734,7 +737,8 @@ void Renderer::drawStatusBar(double fps, const std::string &backend, float sens,
 
     char src[80] = {};
     if (!source_name_.empty())
-      std::snprintf(src, sizeof(src), "  %.38s", source_name_.c_str());
+      std::snprintf(src, sizeof(src), "  %s",
+                    truncateUtf8(source_name_, 38).c_str());
 
     std::snprintf(lbuf, sizeof(lbuf), " %s  %s  W:%d G:%d  Sens:%.1f%s%s%s",
                   backend.empty() ? "?" : backend.c_str(), themeName().c_str(),
@@ -801,11 +805,8 @@ void Renderer::render(const std::vector<float> &bars_l,
 
   bool do_clear = needs_clear_;
   {
-    const int nb = static_cast<int>(bars_l.size()), lim = std::min(nb, 4);
-    float lfe = 0.f;
-    for (int i = 0; i < lim; ++i)
-      lfe += bars_l[i];
-    const bool beat_now = (lim > 0) && (lfe / lim >= BEAT_THRESHOLD);
+    const bool beat_now = nextBeatState(beat_flash_, lowBandLevel(bars_l),
+                                        BEAT_THRESHOLD, BEAT_THRESHOLD_OFF);
     if (beat_now != beat_flash_) {
       do_clear = true;
       invalidatePrev();

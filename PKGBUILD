@@ -1,10 +1,10 @@
 # Maintainer: Joshua <your@email.com>
-pkgname=cava-viz
+pkgname=viz
 pkgver=1.2.0
 pkgrel=1
 pkgdesc="Terminal audio visualizer using the CAVA algorithm with ncurses truecolor gradients"
 arch=('x86_64' 'aarch64')
-url="https://github.com/Venomseye/cava-viz"
+url="https://github.com/Venomseye/viz"
 license=('MIT')
 
 # Both backends are compiled in (ENABLE_PIPEWIRE/ENABLE_PULSEAUDIO=ON below),
@@ -42,7 +42,8 @@ build() {
 
 check() {
     cd "$pkgname-$pkgver"
-    # config, user_theme and fft_processor suites (registered in CMake)
+    # every suite registered in CMake (config, user_theme, fft_processor,
+    # audio_utils, text_utils)
     ctest --test-dir build --output-on-failure
 }
 

@@ -188,7 +188,7 @@ static float parseFloat(const char *key, const char *val, float fallback) {
   if (!end || end == val || *end != '\0' || errno != 0) {
     std::fprintf(
         stderr,
-        "cava-viz: config: '%s' expects a number, got '%s' — using %.3f\n", key,
+        "viz: config: '%s' expects a number, got '%s' — using %.3f\n", key,
         val, static_cast<double>(fallback));
     return fallback;
   }
@@ -253,7 +253,7 @@ bool Config::load() {
   {                                                                            \
     auto _c = std::clamp(field, (lo), (hi));                                   \
     if (_c != field)                                                           \
-      std::fprintf(stderr, "cava-viz: '%s' out of range, clamped.\n", #field); \
+      std::fprintf(stderr, "viz: '%s' out of range, clamped.\n", #field); \
     field = _c;                                                                \
   }
   // theme: only enforce non-negative; the upper bound depends on how many
@@ -385,7 +385,7 @@ void Config::save() const {
   if (!f)
     return;
 
-  fprintf(f, "# cava-viz configuration\n");
+  fprintf(f, "# viz configuration\n");
   fprintf(f, "# Edit while running — inotify reloads changes instantly.\n\n");
 
   fprintf(
@@ -468,6 +468,6 @@ bool Config::loadState() {
 void Config::saveState() const {
   const std::string p = statePath();
   mkdirFor(p);
-  writeFileAtomic(p, "# cava-viz internal state — do not edit\nlast_source = " +
+  writeFileAtomic(p, "# viz internal state — do not edit\nlast_source = " +
                          last_source + "\n");
 }
