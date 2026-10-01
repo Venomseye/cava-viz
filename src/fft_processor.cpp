@@ -77,7 +77,7 @@ FFTProcessor::FFTProcessor(int sr, int ch)
     initBufferSizes();
     input_buf_size_ = bass_buf_size_ * channels_;
     input_buf_.assign(input_buf_size_, 0.0);
-    ring_.assign(input_buf_size_, 0.0);
+    allocRing();
     buildHannWindows();
     // Initialise auto-sens multiplier so combined_sens = sens_ * man_sens_ = 1.0
     // from the very first frame, preventing the initial blast.
@@ -89,15 +89,11 @@ FFTProcessor::~FFTProcessor() { freeFFTW(); }
 
 // ── reinit: change channel count without moving the object ───────────────────
 void FFTProcessor::reinit(int new_channels) {
-    {
-        std::lock_guard<std::mutex> lk(mtx_);
-        channels_       = new_channels;
-        input_buf_size_ = bass_buf_size_ * channels_;
-        input_buf_.assign(input_buf_size_, 0.0);
-        ring_.assign(input_buf_size_, 0.0);
-        ring_wpos_ = 0;
-        new_samples_acc_.store(0, std::memory_order_relaxed);
-    }
+    // Contract: capture is stopped, so no producer is running.
+    channels_       = new_channels;
+    input_buf_size_ = bass_buf_size_ * channels_;
+    input_buf_.assign(input_buf_size_, 0.0);
+    allocRing();
 
     freeFFTW();
     initFFTW(true);   // FFTW_ESTIMATE — instant; imperceptible perf difference at 60fps
@@ -263,16 +259,49 @@ void FFTProcessor::buildPlan(int num_bars) {
     }
 }
 
-// ── addSamples (audio thread) ─────────────────────────────────────────────────
-void FFTProcessor::addSamples(const std::vector<float>& s, int /*ch*/) {
-    std::unique_lock<std::mutex> lk(mtx_, std::try_to_lock);
-    if (!lk.owns_lock()) return;
-    const size_t rsize = ring_.size();
-    for (float v : s) {
-        ring_[ring_wpos_] = (double)v * 32768.0;
-        ring_wpos_ = (ring_wpos_ + 1) % rsize;
+// ── Ring buffer + addSamples (audio thread) ─────────────────────────────────
+void FFTProcessor::allocRing() {
+    ring_size_ = static_cast<std::size_t>(input_buf_size_) * 4;
+    ring_ = std::make_unique<std::atomic<float>[]>(ring_size_);
+    for (std::size_t i = 0; i < ring_size_; ++i)
+        ring_[i].store(0.0f, std::memory_order_relaxed);
+    wcount_.store(0, std::memory_order_relaxed);
+    rcount_ = 0;
+}
+
+void FFTProcessor::addSamples(const float* s, std::size_t count, int ch) {
+    if (!s || count == 0 || ring_size_ == 0 || ch < 1) return;
+
+    std::uint64_t w   = wcount_.load(std::memory_order_relaxed); // we're the only writer
+    std::size_t   idx = static_cast<std::size_t>(w % ring_size_);
+    const auto put = [&](float v) {
+        ring_[idx].store(v, std::memory_order_relaxed);
+        if (++idx == ring_size_) idx = 0;
+        ++w;
+    };
+
+    const int pc = channels_;
+    if (ch == pc) {
+        // Fast path.  If a single chunk exceeds the ring only its tail matters.
+        const std::size_t skip = count > ring_size_ ? count - ring_size_ : 0;
+        w   += skip;
+        idx  = (idx + skip) % ring_size_;
+        for (std::size_t i = skip; i < count; ++i) put(s[i]);
+    } else {
+        // Layout differs from what the processor was built for (e.g. the
+        // server negotiated mono): convert instead of misreading the data.
+        const std::size_t frames = count / static_cast<std::size_t>(ch);
+        for (std::size_t f = 0; f < frames; ++f) {
+            const float* fr = s + f * static_cast<std::size_t>(ch);
+            if (pc == 2) {
+                put(fr[0]);
+                put(ch >= 2 ? fr[1] : fr[0]);
+            } else {                                   // pc == 1
+                put(ch >= 2 ? 0.5f * (fr[0] + fr[1]) : fr[0]);
+            }
+        }
     }
-    new_samples_acc_.fetch_add((int)s.size(), std::memory_order_relaxed);
+    wcount_.store(w, std::memory_order_release);
 }
 
 // ── O(n) monstercat: two-pass rolling-max ────────────────────────────────────
@@ -292,7 +321,11 @@ bool FFTProcessor::execute(int num_bars, float /*fps*/) {
     if (num_bars != num_bars_)
         buildPlan(num_bars);
 
-    int new_samples = new_samples_acc_.exchange(0, std::memory_order_relaxed);
+    const std::uint64_t total = wcount_.load(std::memory_order_acquire);
+    const std::uint64_t delta = total - rcount_;
+    rcount_ = total;
+    const int new_samples =
+        static_cast<int>(std::min<std::uint64_t>(delta, 1u << 30));
     bool silence = true;
 
     if (new_samples > 0) {
@@ -303,15 +336,17 @@ bool FFTProcessor::execute(int num_bars, float /*fps*/) {
         frame_skip_ = 1;
 
         {
-            std::lock_guard<std::mutex> lk(mtx_);
-            int fill = std::min(new_samples, input_buf_size_);
-            for (int n = input_buf_size_-1; n >= fill; --n)
-                input_buf_[n] = input_buf_[n - fill];
-            const size_t rsize = ring_.size();
+            // Newest sample first.  fill <= delta <= total, so total-1-n >= 0.
+            const int fill = std::min(new_samples, input_buf_size_);
+            std::memmove(input_buf_.data() + fill, input_buf_.data(),
+                         static_cast<std::size_t>(input_buf_size_ - fill) * sizeof(double));
             for (int n = 0; n < fill; ++n) {
-                const size_t idx = (ring_wpos_ + rsize - 1 - n) % rsize;
-                input_buf_[n] = ring_[idx];
-                if (std::fabs(ring_[idx]) > SILENCE_PEAK) silence = false;
+                const std::size_t idx =
+                    static_cast<std::size_t>((total - 1 - static_cast<std::uint64_t>(n)) % ring_size_);
+                const double v =
+                    static_cast<double>(ring_[idx].load(std::memory_order_relaxed)) * 32768.0;
+                input_buf_[n] = v;
+                if (std::fabs(v) > SILENCE_PEAK) silence = false;
             }
         }
     } else {

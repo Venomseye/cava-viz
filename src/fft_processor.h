@@ -22,7 +22,9 @@
  */
 #include <algorithm>
 #include <atomic>
-#include <mutex>
+#include <cstddef>
+#include <cstdint>
+#include <memory>
 #include <vector>
 #include <fftw3.h>
 
@@ -66,7 +68,22 @@ public:
     void reinit(int new_channels);
 
     /// Push PCM samples (interleaved) — called from the audio thread.
-    void addSamples(const std::vector<float>& samples, int channels);
+    /// Lock-free and allocation-free: safe on a real-time audio thread.
+    /// Exactly ONE thread may call this at a time (the capture thread; the
+    /// owner must stop capture before reinit()).  `samples` is interleaved
+    /// with `channels` channels; if that differs from the processor's own
+    /// channel count the data is converted (mono -> L=R, N>2 -> first two
+    /// channels, stereo -> mono average).
+    void addSamples(const float* samples, std::size_t count, int channels);
+    void addSamples(const std::vector<float>& samples, int channels) {
+        addSamples(samples.data(), samples.size(), channels);
+    }
+
+    /// Total samples ever accepted (monotonic).  Usable as a liveness signal:
+    /// it advances iff the capture callback is actually delivering data.
+    std::uint64_t samplesWritten() const {
+        return wcount_.load(std::memory_order_acquire);
+    }
 
     /// Compute one display frame. Returns false only if num_bars <= 0.
     bool execute(int num_bars, float fps);
@@ -194,10 +211,16 @@ private:
     std::vector<float>  bars_l_, bars_r_;
 
     // Ring buffer
-    std::vector<double> ring_;
-    size_t              ring_wpos_       {0};
-    std::atomic<int>    new_samples_acc_ {0};
-    std::mutex          mtx_;
+    // Single-producer / single-consumer ring.  The capture thread stores
+    // samples (relaxed atomics: race-free by definition, free on x86/ARM) and
+    // publishes the running total with release; execute() reads that total
+    // with acquire and copies the newest samples out.  The ring is 4x the
+    // largest read, so the producer can never lap the region being read.
+    std::unique_ptr<std::atomic<float>[]> ring_;
+    std::size_t               ring_size_ {0};
+    std::atomic<std::uint64_t> wcount_   {0};   // producer-written
+    std::uint64_t             rcount_    {0};   // consumer-only
+    void allocRing();
 
     double framerate_  {60.0};
     int    frame_skip_ {1};

@@ -1,4 +1,5 @@
 #pragma once
+#include <cstddef>
 #include <functional>
 #include <string>
 #include <vector>
@@ -7,8 +8,12 @@
 /// Callbacks are invoked from a dedicated capture thread.
 class AudioCapture {
 public:
+  /// Called from the capture thread with `count` interleaved float samples
+  /// (count = frames * channels).  Pointer + length instead of a std::vector
+  /// so the (real-time) PipeWire thread never allocates; the pointer is only
+  /// valid for the duration of the call.
   using AudioCallback =
-      std::function<void(const std::vector<float> &samples, int channels)>;
+      std::function<void(const float *samples, std::size_t count, int channels)>;
 
   virtual ~AudioCapture() = default;
 

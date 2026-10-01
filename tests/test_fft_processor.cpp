@@ -13,6 +13,7 @@
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
+#include <thread>
 #include <vector>
 
 static int g_fail = 0, g_pass = 0;
@@ -41,8 +42,7 @@ static void run(FFTProcessor &fft, int channels, double freq, double amp_l,
     std::vector<float> chunk;
     chunk.reserve(static_cast<size_t>(per_frame) * channels);
     for (int i = 0; i < per_frame; ++i, ++n) {
-      const double v =
-          std::sin(2.0 * PI * freq * static_cast<double>(n) / RATE);
+      const double v = std::sin(2.0 * PI * freq * static_cast<double>(n) / RATE);
       chunk.push_back(static_cast<float>(amp_l * v));
       if (channels == 2)
         chunk.push_back(static_cast<float>(amp_r * v));
@@ -74,8 +74,7 @@ static void test_setter_clamp() {
   fft.setMonstercat(-3.0f);
   CHECK(fft.moncatFactor() == 0.0f, "negative monstercat -> off");
   fft.setMonstercat(0.3f);
-  CHECK(fft.moncatFactor() >= 1.0f,
-        "0<m<1 is raised to >=1.0 (was amplifying)");
+  CHECK(fft.moncatFactor() >= 1.0f, "0<m<1 is raised to >=1.0 (was amplifying)");
   fft.setMonstercat(1.5f);
   CHECK(fft.moncatFactor() == 1.5f, "1.5 unchanged");
   fft.setMonstercat(99.0f);
@@ -148,6 +147,7 @@ static void test_channel_mapping() {
     CHECK(l < r * 0.2f, "right-only tone is (nearly) absent on barsL");
   }
 }
+
 
 // ── helpers for arbitrary per-sample generators ──────────────────────────────
 struct Rng {
@@ -264,6 +264,116 @@ static void test_auto_sens_ignores_dither() {
   CHECK(quiet.autoGain() > 5.0, "quiet real signal still gets auto-gain");
 }
 
+static void test_addsamples_layouts_and_counters() {
+  // samplesWritten() counts every accepted sample (liveness signal).
+  {
+    FFTProcessor fft(RATE, 2);
+    CHECK(fft.samplesWritten() == 0, "starts at zero");
+    std::vector<float> c(1000, 0.1f);
+    fft.addSamples(c, 2);
+    fft.addSamples(c.data(), c.size(), 2);
+    CHECK(fft.samplesWritten() == 2000, "counter advances by count");
+    fft.addSamples(nullptr, 10, 2);
+    fft.addSamples(c.data(), 0, 2);
+    CHECK(fft.samplesWritten() == 2000, "null / empty input is ignored");
+  }
+  {
+    // A chunk bigger than the whole ring must not crash and still counts.
+    FFTProcessor fft(RATE, 2);
+    std::vector<float> huge(1u << 20, 0.25f);
+    fft.addSamples(huge, 2);
+    CHECK(fft.samplesWritten() == huge.size(), "oversized chunk accounted");
+    fft.execute(BARS, static_cast<float>(FPS)); // must not read out of bounds
+  }
+  {
+    // Server negotiated MONO while the processor is stereo: data must be
+    // duplicated into L and R, not misread as interleaved stereo.
+    FFTProcessor fft(RATE, 2);
+    configure(fft);
+    fft.setMonstercat(0.0f);
+    const int per_frame = RATE / FPS;
+    long n = 0;
+    for (int f = 0; f < 120; ++f) {
+      std::vector<float> mono;
+      for (int i = 0; i < per_frame; ++i, ++n)
+        mono.push_back(static_cast<float>(
+            0.5 * std::sin(2.0 * PI * 1000.0 * static_cast<double>(n) / RATE)));
+      fft.addSamples(mono, 1); // channels=1 into a 2-channel processor
+      fft.execute(BARS, static_cast<float>(FPS));
+    }
+    const int pl = argmax(fft.barsL()), pr = argmax(fft.barsR());
+    CHECK(fft.barsL()[pl] > 0.05f, "mono input into stereo processor: L active");
+    CHECK(pl >= 16 && pl <= 24, "mono->stereo: tone still at the right place");
+    CHECK(pl == pr, "mono->stereo: L and R peak at the same bar");
+    CHECK(std::fabs(fft.barsL()[pl] - fft.barsR()[pr]) < 0.02f,
+          "mono->stereo: L and R have equal level");
+  }
+  {
+    // Stereo data into a MONO processor is down-mixed (previously the second
+    // channel was read as extra time samples, halving every frequency).
+    FFTProcessor fft(RATE, 1);
+    configure(fft);
+    fft.setMonstercat(0.0f);
+    const int per_frame = RATE / FPS;
+    long n = 0;
+    for (int f = 0; f < 120; ++f) {
+      std::vector<float> st;
+      for (int i = 0; i < per_frame; ++i, ++n) {
+        const float v = static_cast<float>(
+            0.5 * std::sin(2.0 * PI * 1000.0 * static_cast<double>(n) / RATE));
+        st.push_back(v);
+        st.push_back(v);
+      }
+      fft.addSamples(st, 2);
+      fft.execute(BARS, static_cast<float>(FPS));
+    }
+    const int pk = argmax(fft.barsL());
+    CHECK(fft.barsL()[pk] > 0.05f, "stereo into mono processor: signal present");
+    CHECK(pk >= 16 && pk <= 24, "stereo->mono: tone at the right place");
+  }
+}
+
+// Producer thread (stands in for the capture/RT thread) hammers addSamples()
+// while the main thread runs execute().  Run under ThreadSanitizer this
+// proves the hand-off is race-free; everywhere it proves nothing is lost.
+static void test_concurrent_producer_consumer() {
+  FFTProcessor fft(RATE, 2);
+  configure(fft);
+  fft.setMonstercat(0.0f);
+
+  constexpr int CHUNKS = 3000;
+  constexpr int PER = 441; // 10 ms of stereo frames per chunk
+  std::thread producer([&] {
+    long n = 0;
+    std::vector<float> chunk(static_cast<size_t>(PER) * 2);
+    for (int c = 0; c < CHUNKS; ++c) {
+      for (int i = 0; i < PER; ++i, ++n) {
+        const float v = static_cast<float>(
+            0.5 * std::sin(2.0 * PI * 1000.0 * static_cast<double>(n) / RATE));
+        chunk[static_cast<size_t>(i) * 2] = v;
+        chunk[static_cast<size_t>(i) * 2 + 1] = v;
+      }
+      fft.addSamples(chunk.data(), chunk.size(), 2);
+    }
+  });
+
+  int frames = 0;
+  while (fft.samplesWritten() < static_cast<uint64_t>(CHUNKS) * PER * 2 ||
+         frames < 50) {
+    fft.execute(BARS, static_cast<float>(FPS));
+    ++frames;
+    if (frames > 2'000'000) break; // safety net
+  }
+  producer.join();
+  for (int i = 0; i < 60; ++i) fft.execute(BARS, static_cast<float>(FPS));
+
+  CHECK(fft.samplesWritten() == static_cast<uint64_t>(CHUNKS) * PER * 2,
+        "every sample accepted under concurrent feeding");
+  const int pk = argmax(fft.barsL());
+  CHECK(fft.barsL()[pk] > 0.05f, "signal survives concurrent feeding");
+  CHECK(pk >= 16 && pk <= 24, "tone still lands in the right bar");
+}
+
 int main() {
   test_setter_clamp();
   test_silence();
@@ -272,6 +382,8 @@ int main() {
   test_channel_mapping();
   test_auto_mono_uses_waveform_correlation();
   test_auto_sens_ignores_dither();
+  test_addsamples_layouts_and_counters();
+  test_concurrent_producer_consumer();
   std::printf("fft_processor: %d passed, %d failed\n", g_pass, g_fail);
   return g_fail ? 1 : 0;
 }

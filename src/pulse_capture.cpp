@@ -76,7 +76,7 @@ void PulseAudioCapture::captureLoop(AudioCallback cb) {
       failed_.store(true);
       break;
     }
-    cb(buf, channels_);
+    cb(buf.data(), buf.size(), channels_);
   }
   if (running_.load())
     failed_.store(true);

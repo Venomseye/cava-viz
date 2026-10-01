@@ -13,10 +13,13 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cerrno>
 #include <chrono>
 #include <climits> // NAME_MAX (Debian/Ubuntu don't expose it via inotify.h)
 #include <cmath>   // std::sqrt, std::fmod
+#include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <getopt.h>
 #include <memory>
@@ -29,7 +32,6 @@
 #ifdef __linux__
 #include <fcntl.h>
 #include <sys/inotify.h>
-#include <sys/resource.h>
 #include <sys/stat.h>
 #include <time.h>
 #include <unistd.h>
@@ -196,7 +198,7 @@ static void applyRendererConfig(Renderer &r, const Config &cfg,
 
 // ─────────────────────────────────────────────────────────────────────────────
 int main(int argc, char *argv[]) {
-  struct sigaction sa{};
+  struct sigaction sa {};
   sa.sa_handler = sig_handler;
   sigemptyset(&sa.sa_mask);
   sigaction(SIGINT, &sa, nullptr);
@@ -208,13 +210,6 @@ int main(int argc, char *argv[]) {
   Config cfg;
   cfg.load();
   cfg.loadState();
-
-#ifdef __linux__
-  // Lower process priority so the kernel parks this core into deeper C-states
-  // when nothing else is running, allowing the fan controller to reduce speed.
-  // nice +5: still responsive but yields immediately to any competing work.
-  setpriority(PRIO_PROCESS, 0, 5);
-#endif
 
   std::string backend = "auto";
   std::string cli_source;
@@ -247,6 +242,13 @@ int main(int argc, char *argv[]) {
     switch (o) {
     case 'b':
       backend = optarg;
+      if (backend != "auto" && backend != "pipewire" && backend != "pulse") {
+        std::fprintf(stderr,
+                     "cava-viz: unknown backend '%s' (use auto, pipewire or "
+                     "pulse)\n",
+                     optarg);
+        return 1;
+      }
       break;
     case 's':
       cli_source = optarg;
@@ -256,6 +258,13 @@ int main(int argc, char *argv[]) {
       break;
     case 'r':
       sample_rate = argInt("-r", optarg);
+      if (sample_rate < 8000 || sample_rate > 192000) {
+        std::fprintf(stderr,
+                     "cava-viz: -r must be between 8000 and 192000 Hz, got "
+                     "%d\n",
+                     sample_rate);
+        return 1;
+      }
       break;
     case 't': {
       const int ti = argInt("-t", optarg);
@@ -413,11 +422,17 @@ int main(int argc, char *argv[]) {
   auto fps_tp = Clock::now();
   const int WATCH = target_fps * 2;
 
-  // Absolute-deadline frame limiter (Linux): initialise the first deadline
-  // to now so the first iteration sleeps for exactly one budget period.
+
+  // Absolute-deadline frame limiter (Linux).  This is the ONLY thing that
+  // paces the loop: input is polled without blocking (see below).
 #ifdef __linux__
-  struct timespec t_deadline{};
-  clock_gettime(CLOCK_MONOTONIC, &t_deadline);
+  const int64_t budget_ns = static_cast<int64_t>(budget.count()) * 1000;
+  auto monotonicNs = []() -> int64_t {
+    struct timespec ts {};
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return static_cast<int64_t>(ts.tv_sec) * 1'000'000'000LL + ts.tv_nsec;
+  };
+  int64_t deadline_ns = monotonicNs();
 #endif
 
   while (g_running.load()) {
@@ -542,9 +557,9 @@ int main(int argc, char *argv[]) {
           audio.reset();
         }
         const std::string mon = detectMonitor();
-        AudioCapture::AudioCallback cb = [&fft](const std::vector<float> &s,
+        AudioCapture::AudioCallback cb = [&fft](const float *s, std::size_t n,
                                                 int ch) {
-          fft.addSamples(s, ch);
+          fft.addSamples(s, n, ch);
         };
         for (const std::string &src : {std::string(""), mon, active_source}) {
           audio = makeAudio(backend, src, sample_rate, channels, cb);
@@ -565,11 +580,17 @@ int main(int argc, char *argv[]) {
     }
 
     // ── Input ─────────────────────────────────────────────────────────────
-    // Set timeout equal to the full frame budget so ncurses blocks in the
-    // kernel rather than polling repeatedly — reduces CPU wakeups.
-    wtimeout(stdscr, 1000 / target_fps);
-    const int ch = getch();
-    if (ch != ERR) {
+    // Non-blocking.  getch() used to block for a whole frame budget AND the
+    // deadline sleep followed, so the real period was budget + work (the
+    // deadline fell permanently behind and never slept), and a held key
+    // skipped the wait entirely, removing the cap.  Now pacing is done in one
+    // place only (the deadline sleep at the bottom); up to 16 queued keys
+    // (key-repeat, paste) are handled per frame.
+    wtimeout(stdscr, 0);
+    for (int keys = 0; keys < 16; ++keys) {
+      const int ch = getch();
+      if (ch == ERR)
+        break;
 
       switch (ch) {
 
@@ -685,7 +706,7 @@ int main(int argc, char *argv[]) {
         break;
       }
 
-    } // if (ch != ERR)
+    } // key drain loop
 
     // ── Compute + render ──────────────────────────────────────────────────
     fft.execute(renderer.barCount(), static_cast<float>(fps));
@@ -721,21 +742,28 @@ int main(int argc, char *argv[]) {
     }
 
     // ── Frame limiter ─────────────────────────────────────────────────────
-    // Use clock_nanosleep with an absolute deadline rather than
-    // sleep_for(budget - elapsed).  sleep_for measures elapsed AFTER the
-    // frame work finishes and then adds a relative sleep — on Linux the
-    // kernel rounds up to the next timer tick (~1 ms), so the loop can
-    // busy-spin for up to 1 ms at the end of every frame, preventing the
-    // CPU from entering C-states and keeping the fan running.
-    // An absolute deadline lets the kernel wake us at exactly the right
-    // tick without any busy-spin remainder.
+    // Sleep until an ABSOLUTE deadline that advances by exactly one frame
+    // budget, so per-frame jitter never accumulates and there is no busy-spin
+    // remainder (which keeps the CPU out of deep C-states).  A signal
+    // (SIGWINCH/SIGUSR1) cuts the sleep short so resize/reload feel instant;
+    // that only brings one frame forward, the deadline itself is unchanged.
+    // If we are more than two frames late (stall, suspend/resume, huge
+    // resize) resync to "now" rather than bursting to catch up.
 #ifdef __linux__
-    t_deadline.tv_nsec += budget.count() * 1000LL;
-    while (t_deadline.tv_nsec >= 1'000'000'000LL) {
-      t_deadline.tv_nsec -= 1'000'000'000LL;
-      t_deadline.tv_sec += 1;
+    {
+      const int64_t now_ns = monotonicNs();
+      int64_t next_ns = deadline_ns + budget_ns;
+      if (now_ns - next_ns > 2 * budget_ns)
+        next_ns = now_ns + budget_ns;
+      deadline_ns = next_ns;
+      struct timespec ts {};
+      ts.tv_sec = static_cast<time_t>(next_ns / 1'000'000'000LL);
+      ts.tv_nsec = static_cast<long>(next_ns % 1'000'000'000LL);
+      while (clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &ts, nullptr) ==
+                 EINTR &&
+             g_running.load() && !g_resize.load() && !g_reload.load()) {
+      }
     }
-    clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &t_deadline, nullptr);
 #else
     const auto elapsed = Clock::now() - frame_start;
     if (elapsed < budget)

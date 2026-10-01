@@ -34,8 +34,8 @@ private:
   struct pw_core *core_{nullptr};
   struct pw_stream *stream_{nullptr};
 
-  struct spa_hook stream_listener_{};
-  struct pw_stream_events stream_events_{};
+  struct spa_hook stream_listener_ {};
+  struct pw_stream_events stream_events_ {};
 
   std::thread thread_;
   std::atomic<bool> running_{false};
@@ -45,6 +45,7 @@ private:
   std::string source_;
   int sample_rate_{44100};
   int channels_{1};
+  std::atomic<int> neg_channels_{1}; // as negotiated; set in onParamChanged
 
   static void onProcess(void *ud);
   static void onParamChanged(void *ud, uint32_t id, const struct spa_pod *p);

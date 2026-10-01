@@ -1,8 +1,10 @@
 #ifdef HAVE_PIPEWIRE
 #include "pipewire_capture.h"
 
+#include <algorithm>
 #include <cstdio>
 #include <cstring>
+#include <utility>
 
 #include <pipewire/keys.h>
 #include <spa/param/audio/format-utils.h>
@@ -18,6 +20,7 @@ bool PipeWireCapture::init(const std::string &src, int sr, int ch) {
   source_ = src;
   sample_rate_ = sr;
   channels_ = ch;
+  neg_channels_.store(ch, std::memory_order_relaxed);
   failed_.store(false);
   return true;
 }
@@ -98,7 +101,7 @@ bool PipeWireCapture::start(AudioCallback cb) {
   struct spa_pod_builder b;
   spa_pod_builder_init(&b, buf, sizeof(buf));
 
-  struct spa_audio_info_raw info{};
+  struct spa_audio_info_raw info {};
   info.format = SPA_AUDIO_FORMAT_F32;
   info.rate = static_cast<uint32_t>(sample_rate_);
   info.channels = static_cast<uint32_t>(channels_);
@@ -190,35 +193,35 @@ void PipeWireCapture::onProcess(void *ud) {
   const auto *data = reinterpret_cast<const float *>(raw + offset);
   uint32_t n_samples = byte_size / sizeof(float);
 
-  if (n_samples > 0) {
-    std::vector<float> audio(data, data + n_samples);
-    self->callback_(audio, self->channels_);
-  }
+  // No allocation here: this runs on PipeWire's real-time thread
+  // (PW_STREAM_FLAG_RT_PROCESS).  Pass the mapped buffer straight through.
+  // Use the channel count the server actually negotiated so a mono/surround
+  // stream is converted instead of being read with the wrong layout.
+  if (n_samples > 0 && self->callback_)
+    self->callback_(data, n_samples,
+                    self->neg_channels_.load(std::memory_order_relaxed));
   pw_stream_queue_buffer(self->stream_, pwbuf);
 }
 
 void PipeWireCapture::onParamChanged(void *ud, uint32_t id,
                                      const struct spa_pod *param) {
-  // Verify the format PipeWire actually negotiated matches what we asked for.
-  // A mismatch (e.g. different sample rate or channel count) means addSamples
-  // will receive data at the wrong layout and audio will be distorted.
+  // Track the format PipeWire actually negotiated.
   auto *self = static_cast<PipeWireCapture *>(ud);
   if (!param || id != SPA_PARAM_Format)
     return;
 
-  struct spa_audio_info_raw info{};
+  struct spa_audio_info_raw info {};
   if (spa_format_audio_raw_parse(param, &info) < 0)
     return;
 
-  const int got_rate = static_cast<int>(info.rate);
-  const int got_ch = static_cast<int>(info.channels);
-  if (got_rate != self->sample_rate_ || got_ch != self->channels_) {
-    std::fprintf(stderr,
-                 "cava-viz: PipeWire format mismatch — "
-                 "negotiated rate=%d ch=%d, requested rate=%d ch=%d. "
-                 "Audio may be distorted.\n",
-                 got_rate, got_ch, self->sample_rate_, self->channels_);
-  }
+  // Remember the negotiated channel count; onProcess hands it to the FFT
+  // stage, which converts layouts.  (This used to fprintf to stderr, which
+  // scribbles over the ncurses screen, and then fed mismatched data through
+  // unchanged.)  A sample-rate mismatch can't be corrected here; the display
+  // is merely slightly mis-scaled in frequency.
+  if (info.channels >= 1)
+    self->neg_channels_.store(static_cast<int>(info.channels),
+                              std::memory_order_relaxed);
 }
 
 void PipeWireCapture::onStreamState(void *ud, enum pw_stream_state /*old*/,

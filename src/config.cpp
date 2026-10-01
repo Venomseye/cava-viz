@@ -2,8 +2,8 @@
 #include <algorithm>
 #include <cctype>
 #include <cerrno>
-#include <cmath>
 #include <cstdio>
+#include <cmath>
 #include <cstdlib>
 #include <cstring>
 #include <fcntl.h>
@@ -50,15 +50,14 @@ static bool writeFileAtomic(const std::string &path,
   }
   mode_t mode = 0644;
   bool had_mode = false;
-  struct stat st{};
+  struct stat st {};
   if (stat(target.c_str(), &st) == 0) {
     mode = st.st_mode & 07777;
     had_mode = true;
   }
 
   const std::string tmp = target + ".tmp." + std::to_string(getpid());
-  const int fd =
-      open(tmp.c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, mode);
+  const int fd = open(tmp.c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, mode);
   if (fd < 0)
     return false;
 
@@ -121,9 +120,8 @@ static bool sameValue(const std::string &file_val, const std::string &new_val) {
   if (*e1 != '\0' && *e1 != '#')
     return false;
   const std::size_t dot = new_val.find('.');
-  const int decimals = (dot == std::string::npos)
-                           ? 0
-                           : static_cast<int>(new_val.size() - dot - 1);
+  const int decimals =
+      (dot == std::string::npos) ? 0 : static_cast<int>(new_val.size() - dot - 1);
   double tol = 0.5;
   for (int i = 0; i < decimals; ++i)
     tol /= 10.0;
@@ -396,8 +394,7 @@ void Config::save() const {
              "──────────────────────────────────────────────\n");
   fprintf(f, "# gravity: fall speed (0.1=slow, 1.0=default, 5.0=instant)\n");
   fprintf(f, "gravity        = %.2f\n", static_cast<double>(gravity));
-  fprintf(f, "# monstercat: bar spread (0=off, 1.0-5.0; values in (0,1) act as "
-             "1.0; 1.5=default)\n");
+  fprintf(f, "# monstercat: bar spread (0=off, 1.0-5.0; values in (0,1) act as 1.0; 1.5=default)\n");
   fprintf(f, "monstercat     = %.2f\n", static_cast<double>(monstercat));
   fprintf(f, "# rise_factor: attack smoothing (0.0=instant, 0.95=very slow)\n");
   fprintf(f, "rise_factor    = %.2f\n", static_cast<double>(rise_factor));

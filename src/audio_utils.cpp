@@ -62,7 +62,8 @@ std::string runProcess(const std::vector<std::string> &args, int timeout_ms) {
   argv.push_back(nullptr);
 
   pid_t pid = 0;
-  const int rc = posix_spawnp(&pid, argv[0], &fa, &attr, argv.data(), environ);
+  const int rc =
+      posix_spawnp(&pid, argv[0], &fa, &attr, argv.data(), environ);
   posix_spawn_file_actions_destroy(&fa);
   posix_spawnattr_destroy(&attr);
   close(pfd[1]);
@@ -328,8 +329,9 @@ void doStartAudio(const std::string &backend, const std::string &cli_source,
                   FFTProcessor &fft, Config &cfg,
                   std::unique_ptr<AudioCapture> &audio,
                   std::string &active_source, std::string &bname) {
-  AudioCapture::AudioCallback cb = [&fft](const std::vector<float> &s, int ch) {
-    fft.addSamples(s, ch);
+  AudioCapture::AudioCallback cb = [&fft](const float *s, std::size_t n,
+                                          int ch) {
+    fft.addSamples(s, n, ch);
   };
 
   if (!cli_source.empty()) {
