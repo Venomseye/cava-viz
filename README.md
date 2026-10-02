@@ -1,223 +1,291 @@
 # viz
 
-A terminal audio visualizer built on the [CAVA](https://github.com/karlstav/cava) algorithm — dual-FFT analysis, Monstercat smoothing, per-bar EQ, and autosensitivity, rendered in ncurses with truecolor gradients. Also runs headless as a bar-mode data source for Waybar, Polybar, eww, tmux, and any script.
+[![CI](https://github.com/Venomseye/viz/actions/workflows/ci.yml/badge.svg)](https://github.com/Venomseye/viz/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+![Platform: Linux](https://img.shields.io/badge/platform-Linux-lightgrey.svg)
 
-```
- ▁         ▄                       ▂
- █  ▇  ▃   █  ▆  ▂              ▅  █  ▃
- █  █  █   █  █  █  ▄  ▂  ▁  ▂  █  █  █
-─────────────────────────────────────────
- [pw] alsa_output.pci-0000_00_1f.3.monitor   Neon  60fps
+A real-time terminal audio visualizer written in C++17. It implements the [CAVA](https://github.com/karlstav/cava) analysis pipeline (dual FFT, Monstercat smoothing, per-bar EQ, auto-sensitivity) and draws it with ncurses using smooth truecolor gradients, mirrored left/right channels and live-reloadable themes.
+
+```text
+ PipeWire  Neon  W:2 G:1  Sens:1.5 A PIN  alsa_output.pci-0000_00_1f.3.monit 60 fps
+────────────────────────────────────────────────────────────────────────────────────
+
+                                    ▅▅       ▅▅
+                                    ██       ██
+                                    ██       ██
+                                    ██       ██
+                                    ██ ██ ██ ██
+                                 ▂▂ ██ ██ ██ ██ ▂▂
+                                 ██ ██ ██ ██ ██ ██
+                                 ██ ██ ██ ██ ██ ██    ▁▁
+▆▆ ▆▆ ▅▅ ▃▃ ▂▂ ▁▁    ▃▃ ▅▅ ▄▄ ▇▇ ██ ██ ██ ██ ██ ██ ▇▇ ██    ▃▃ ▃▃       ▁▁    ▁▁ ▂▂
+██ ██ ██ ██ ██ ██ ▆▆ ██ ██ ██ ██ ██ ██ ██ ██ ██ ██ ██ ██ ▇▇ ██ ██ ▅▅ ▅▅ ██ ██ ██ ██
 ```
 
----
+<sub>A frame from the real renderer, captured as plain text (colours omitted) while analysing a synthetic stereo test signal: bass at the centre, highs toward the edges.</sub>
 
 ## Features
 
-- **CAVA-faithful algorithm** — dual-FFT, per-bar frequency EQ, Monstercat bar spreading, and autosensitivity
-- **Truecolor gradients** — 12 built-in themes; graceful fallback to 256-color and 8-color terminals
-- **User-defined themes** — write a `.theme` file with hex color stops; hot-reloaded while running
-- **Stereo visualization** — side-by-side left/right channels with mono collapse
-- **Live config reload** — edit the config or user themes while running; inotify reacts instantly
-- **Low CPU footprint** — ncurses dirty-region rendering, `clock_nanosleep` frame timing, throttled color rebuilds
-- **Dual audio backend** — PipeWire and PulseAudio; auto-selects, falls back gracefully, reconnects on device loss
+- **CAVA-style analysis** &mdash; dual FFT (separate bass window), log-spaced bars, per-bar EQ, gravity/integral smoothing, Monstercat spreading, auto-sensitivity.
+- **Stereo view** &mdash; left channel on the left half, right on the right, mirrored around the centre; collapses to mono automatically when the channels are nearly identical (optional).
+- **12 built-in themes + your own** &mdash; drop a `.theme` file with 2&ndash;8 colour stops into the config folder; it loads instantly, no restart.
+- **Colour that adapts to your terminal** &mdash; truecolor where available, nearest-match 256-colour or 8-colour otherwise.
+- **Live reload** &mdash; edit the config or themes while it runs (inotify), or send `SIGUSR1`.
+- **PipeWire and PulseAudio** &mdash; auto-detects the backend and the default output's monitor, follows default-device changes, and reconnects if the stream drops.
+- **Efficient** &mdash; absolute-deadline frame pacing (`clock_nanosleep`, no busy-wait) and delta drawing: only changed cells are redrawn.
 
----
-
-## Requirements
-
-| Dependency | Package (Arch) | Package (Debian/Ubuntu) |
-|---|---|---|
-| C++17 compiler | `gcc` / `clang` | `g++` / `clang++` |
-| CMake ≥ 3.16 | `cmake` | `cmake` |
-| Ninja *(optional, faster)* | `ninja` | `ninja-build` |
-| FFTW3 | `fftw` | `libfftw3-dev` |
-| ncursesw | `ncurses` | `libncursesw5-dev` |
-| PipeWire *(optional)* | `pipewire` | `libpipewire-0.3-dev` |
-| PulseAudio *(optional)* | `libpulse` | `libpulse-dev` |
-
-At least one audio backend must be present.
-
----
-
-## Installation
+## Quick start
 
 ```bash
 git clone https://github.com/Venomseye/viz.git
 cd viz
-chmod +x install.sh uninstall.sh
+./install.sh        # installs dependencies, builds, installs to /usr/local
+viz                 # play some music
+```
+
+Press `t` to change theme, `q` to quit. The full key list is [below](#controls).
+
+## Requirements
+
+Linux, a terminal with Unicode block characters (truecolor recommended), and at least one audio backend.
+
+| Dependency | Arch | Debian / Ubuntu |
+|---|---|---|
+| C++17 compiler | `gcc` or `clang` | `g++` or `clang++` |
+| CMake &ge; 3.16 | `cmake` | `cmake` |
+| Ninja *(optional, faster)* | `ninja` | `ninja-build` |
+| FFTW3 | `fftw` | `libfftw3-dev` |
+| ncursesw | `ncurses` | `libncursesw5-dev` |
+| PipeWire *(backend)* | `pipewire` | `libpipewire-0.3-dev` `libspa-0.2-dev` |
+| PulseAudio *(backend)* | `libpulse` | `libpulse-dev` |
+
+At least one of PipeWire / PulseAudio must be present at build time. `pactl` (from `libpulse` / `pulseaudio-utils`; also provided by `pipewire-pulse`) is used to find your default output and to list sources.
+
+## Installation
+
+### Prebuilt release
+
+Download the tarball from the [Releases](https://github.com/Venomseye/viz/releases) page, then:
+
+```bash
+tar xzf viz-v*-linux-x86_64.tar.gz && cd viz-v*-linux-x86_64
+./install.sh                            # to /usr/local (uses sudo if needed)
+INSTALL_PREFIX=~/.local ./install.sh    # or to your home directory, no sudo
+```
+
+This installs the binary, man page, shell completions and an example theme. You still need the runtime libraries (`fftw`, `ncurses`, and PipeWire and/or PulseAudio).
+
+### Build from source
+
+```bash
+git clone https://github.com/Venomseye/viz.git
+cd viz
 ./install.sh
 ```
 
-Detects your distro, installs missing dependencies, configures with CMake, builds with Ninja (Make fallback), and installs to `/usr/local/bin`. Also installs the man page and shell completions.
-
-**Options:**
+`install.sh` detects your distribution, installs missing dependencies, builds with CMake (Ninja if available) and installs the binary, man page and completions.
 
 ```bash
-./install.sh                   # incremental build
-./install.sh --clean           # wipe build dir first
-./install.sh --test            # run unit tests before installing
-./install.sh --skip-deps       # skip dependency check (fast rebuilds)
-INSTALL_PREFIX=~/.local ./install.sh   # custom install prefix
+./install.sh --clean                    # wipe the build directory first
+./install.sh --test                     # run the unit tests before installing
+./install.sh --skip-deps                # skip the dependency check
+INSTALL_PREFIX=~/.local ./install.sh    # custom prefix
 ```
 
-**Uninstall:**
-
-```bash
-./uninstall.sh           # interactive — prompts before removing config
-./uninstall.sh --yes     # non-interactive — removes everything
-```
-
-**Manual CMake build:**
+Or do it by hand:
 
 ```bash
 cmake -B build -DCMAKE_BUILD_TYPE=Release
-cmake --build build -j$(nproc)
+cmake --build build -j"$(nproc)"
 sudo cmake --install build
 ```
 
-Builds are portable by default. For a binary tuned to *this* machine only, add `-DNATIVE_ARCH=ON` (adds `-march=native`; never use it for packages or releases).
+Builds are portable by default. `-DNATIVE_ARCH=ON` adds `-march=native` for a binary tuned to *this* machine only; never use it for packages or releases.
 
----
+### Arch Linux
+
+A `PKGBUILD` is included. It builds from the tagged release (`v1.2.0`), so replace the `SKIP` checksum with the real one after tagging:
+
+```bash
+makepkg -si
+```
+
+### Uninstall
+
+```bash
+./uninstall.sh          # asks before removing your config
+./uninstall.sh --yes    # removes everything without asking
+```
 
 ## Usage
 
-```
+```text
 viz [OPTIONS]
 ```
 
-| Flag | Description | Default |
+| Option | Description | Default |
 |---|---|---|
-| `-b <pulse\|pipewire\|auto>` | Audio backend | `auto` |
-| `-s <source>` | Explicit capture device (reconnects to this same device if it drops) | *(auto-detect monitor)* |
-| `-M` | Capture from the default microphone / input device (reconnects if it drops) | off |
-| `-r <Hz>` | Sample rate (8000–192000) | `44100` |
-| `-t <index>` | Starting theme (0–11 built-in, 12+ user); this session only, not saved | `0` |
-| `-f <n>` | Target FPS; this session only, not saved | `60` |
-| `-w` | Auto bar width to fill terminal | off |
-| `--list-sources` | Print available audio sources and exit | |
-| `--check` | Validate config and audio setup, then exit | |
-| `-V` | Print version and exit | |
+| `-b <auto\|pipewire\|pulse>` | Audio backend | `auto` |
+| `-s <source>` | Capture a specific source; reconnects to it if it drops | the default output's monitor |
+| `-M` | Capture the default **microphone** instead of the system audio | off |
+| `-r <Hz>` | Sample rate (8000&ndash;192000) | `44100` |
+| `-t <index>` | Starting theme (0&ndash;11 built-in, 12+ user). Session only, not saved | from config |
+| `-f <n>` | Target FPS. Session only, not saved | from config |
+| `-w` | Fit the bar width to the terminal | off |
+| `--list-sources` | List audio sources and exit | |
+| `--check` | Validate config, themes and audio setup, then exit | |
+| `-V` | Print the version and exit | |
 | `-h` | Print help and exit | |
 
-**Examples:**
+Long forms (`--backend`, `--source`, `--mic`, `--rate`, `--theme`, `--fps`, `--autowidth`) are accepted too.
 
 ```bash
-viz                                      # auto-detect everything
-viz -b pipewire -s alsa_output.pci.monitor   # explicit backend + source
-viz -M -t 6 -f 30                        # mic input, Aurora theme, 30 fps
-viz --list-sources                       # see what's available
-viz --check                              # validate your setup
+viz                                          # auto-detect everything
+viz -M                                       # visualise the microphone
+viz -b pipewire -s alsa_output.pci-0000_00_1f.3.monitor
+viz -t 6 -f 30                               # Aurora theme at 30 fps, just this run
+viz --list-sources                           # what can I capture?
+viz --check                                  # is my setup OK?
 ```
 
----
+By default viz visualises **what you are listening to** (the monitor of your default output). It switches automatically if you change the default output device while it runs. With `-s` or `-M` your choice is never overridden; if that stream dies, the same source is re-opened (retrying at growing intervals, at most every 10 s).
 
-## Keybindings
+## Controls
 
 | Key | Action |
 |---|---|
 | `q` | Quit |
-| `t` | Cycle to next theme (built-in → user-defined → wrap) |
-| `g` | Cycle gap width: 0 → 1 → 2 |
-| `]` / `[` | Increase / decrease bar width |
-| `↑` / `↓` | Adjust sensitivity manually |
-| `a` | Toggle autosensitivity |
+| `t` | Next theme (built-in, then your own, then wrap) |
+| `g` | Cycle the gap between bars: 0 &rarr; 1 &rarr; 2 |
+| `]` / `[` | Wider / narrower bars |
+| `↑` / `↓` | Manual sensitivity |
+| `a` | Toggle auto-sensitivity |
 | `s` | Toggle stereo / mono |
-| `h` | Toggle HUD pin (always visible vs auto-hide) |
-| `c` | Toggle colour cycle (slow hue rotation) |
-| `v` | Toggle per-bar colour (maps colour to bar position) |
-| `w` | Toggle A-weighting (IEC 61672 perceptual curve) |
-| `n` | Toggle auto-mono (collapses stereo when L ≈ R) |
+| `h` | Pin the status bar (otherwise it hides after 3 s of inactivity) |
+| `c` | Colour cycle: slowly rotate the gradient hue |
+| `v` | Per-bar colour: colour by bar position instead of height |
+| `w` | A-weighting: perceptual (IEC 61672) frequency weighting |
+| `n` | Auto-mono: collapse to mono when left and right match |
 
-All settings are persisted to the config file on every keypress.
+Changes you make with these keys are saved to the config file immediately.
 
----
+The status bar shows the backend, theme, bar width (`W`) and gap (`G`), sensitivity (`A` = auto), `PIN`, active modes (`C` colour cycle, `B` per-bar colour), the capture source and the frame rate.
 
-## Live Config Reload
+## Configuration
 
-Edit the config while viz is running — changes apply in under a second:
+The config file is created on first run at `${XDG_CONFIG_HOME:-~/.config}/viz/config`. Edit it while viz is running and the changes apply within a moment. Out-of-range values are clamped.
 
-```bash
-$EDITOR ~/.config/cava-viz/config
+| Key | Default | Range | What it does |
+|---|---|---|---|
+| `theme` | `0` | 0&ndash;11, 12+ = user | Colour theme |
+| `bar_width` | `2` | 1&ndash;8 | Bar width in columns |
+| `gap_width` | `1` | 0&ndash;2 | Gap between bars |
+| `hud_pinned` | `0` | 0 / 1 | Always show the status bar |
+| `colour_cycle` | `0` | 0 / 1 | Slowly rotate the gradient hue |
+| `per_bar_colour` | `0` | 0 / 1 | Colour by bar position |
+| `stereo` | `1` | 0 / 1 | Stereo (1) or mono (0) |
+| `high_cutoff` | `20000` | 1000&ndash;24000 Hz | Highest frequency shown |
+| `gravity` | `1.00` | 0.1&ndash;5.0 | Fall speed (higher is faster) |
+| `monstercat` | `1.50` | 0 = off, 1.0&ndash;5.0 | Bar spreading; a **higher** value spreads **less**; values between 0 and 1 act as 1.0 |
+| `rise_factor` | `0.30` | 0.0&ndash;0.95 | Attack smoothing (0 = instant) |
+| `bass_smooth` | `0.00` | 0.0&ndash;1.0 | Extra smoothing for bass bars (0.1&ndash;0.3 is typical) |
+| `a_weighting` | `0` | 0 / 1 | Perceptual frequency weighting |
+| `noise_gate` | `0.020` | 0.0&ndash;0.2 | Bars below this snap to zero |
+| `auto_mono` | `0` | 0 / 1 | Collapse to mono when L and R are nearly identical |
+| `sensitivity` | `1.50` | 0.2&ndash;8.0 | Manual sensitivity |
+| `auto_sens` | `1` | 0 / 1 | Automatic sensitivity |
+| `fps` | `60` | 10&ndash;240 | Target frame rate |
+
+<details>
+<summary>The file as generated on first run</summary>
+
+```ini
+# viz configuration
+# Edit while running — inotify reloads changes instantly.
+
+# ── Visual ──────────────────────────────────────────────────────
+# 0=Fire 1=Plasma 2=Neon 3=Teal 4=Sunset 5=Candy
+# 6=Aurora 7=Inferno 8=White 9=Rose 10=Mermaid 11=Vapor
+theme          = 0
+bar_width      = 2
+gap_width      = 1
+hud_pinned     = 0
+
+# ── Rendering modes ──────────────────────────────────────────────
+# colour_cycle: slowly rotate gradient hue over time
+colour_cycle   = 0
+# per_bar_colour: map colour to bar index (bass=base, treble=tip)
+per_bar_colour = 0
+
+# ── Audio ────────────────────────────────────────────────────────
+stereo         = 1
+high_cutoff    = 20000
+
+# ── FFT / Smoothing ──────────────────────────────────────────────
+# gravity: fall speed (0.1=slow, 1.0=default, 5.0=instant)
+gravity        = 1.00
+# monstercat: bar spread (0=off, 1.0-5.0; values in (0,1) act as 1.0; 1.5=default)
+monstercat     = 1.50
+# rise_factor: attack smoothing (0.0=instant, 0.95=very slow)
+rise_factor    = 0.30
+# bass_smooth: extra smoothing for bass bars (0.0=off, 0.1-0.3 recommended)
+bass_smooth    = 0.00
+
+# ── Audio processing ─────────────────────────────────────────────
+# a_weighting: IEC 61672 perceptual frequency weighting
+a_weighting    = 0
+# noise_gate: bars below this (post-sens) snap to zero (0.0-0.2)
+noise_gate     = 0.020
+# auto_mono: collapse stereo to mono when L/R are nearly identical
+auto_mono      = 0
+
+# ── Sensitivity ──────────────────────────────────────────────────
+sensitivity    = 1.50
+auto_sens      = 1
+
+# ── Performance ──────────────────────────────────────────────────
+fps            = 60
 ```
 
-Or trigger a reload from any terminal without editing a file:
+</details>
+
+`-t` and `-f` on the command line apply to that run only and are never written to the file. Your own comments in the config are preserved when viz saves.
+
+### Reloading
+
+Edits to the config and to files in the themes folder are picked up automatically. You can also trigger it by hand, which is handy over SSH or where inotify isn't available:
 
 ```bash
 pkill -USR1 -x viz
 ```
 
-`SIGUSR1` reloads the config **and** all user themes, with the same behaviour as inotify (including a stereo/mono audio restart if the `stereo` key changed). Works over SSH and in any environment where inotify isn't available.
-
----
-
-## Configuration
-
-Created on first run at `${XDG_CONFIG_HOME:-~/.config}/cava-viz/config`.
-
-```ini
-# ── Visual ────────────────────────────────────────────────────────────────
-theme          = 2          # 0=Fire 1=Plasma 2=Neon 3=Teal 4=Sunset 5=Candy
-                            # 6=Aurora 7=Inferno 8=White 9=Rose 10=Mermaid 11=Vapor
-                            # 12+ = user themes (alphabetical by filename)
-bar_width      = 2          # 1–8
-gap_width      = 1          # 0–2
-hud_pinned     = 0          # 1 = always show HUD
-
-# ── Rendering modes ───────────────────────────────────────────────────────
-colour_cycle   = 0          # slowly rotate gradient hue over time
-per_bar_colour = 0          # map colour to bar position (bass→treble)
-
-# ── Audio ─────────────────────────────────────────────────────────────────
-stereo         = 1
-high_cutoff    = 10000      # Hz — frequencies above this are ignored
-
-# ── FFT / Smoothing ───────────────────────────────────────────────────────
-gravity        = 1.00       # fall speed (0.1=slow, 5.0=instant)
-monstercat     = 1.50       # bar spread (0=off, 1.0-5.0)
-rise_factor    = 0.90       # attack smoothing (0=instant, 0.95=very slow)
-bass_smooth    = 0.10       # extra smoothing for bass bars
-
-# ── Audio processing ──────────────────────────────────────────────────────
-a_weighting    = 0          # IEC 61672 perceptual frequency weighting
-noise_gate     = 0.020      # bars below this snap to zero (0.0–0.2)
-auto_mono      = 0          # collapse stereo when channels are correlated
-
-# ── Sensitivity ───────────────────────────────────────────────────────────
-sensitivity    = 1.00
-auto_sens      = 1
-
-# ── Performance ───────────────────────────────────────────────────────────
-fps            = 60
-```
-
----
+If you change `stereo`, the audio capture restarts to match.
 
 ## Themes
 
-### Built-in (index 0–11)
+### Built-in
 
 | # | Name | Gradient |
 |---|---|---|
-| 0 | Fire | Deep red → amber → pale yellow |
-| 1 | Plasma | Magenta → violet → electric blue |
-| 2 | Neon | Cyan → electric green |
-| 3 | Teal | Deep teal → sky blue → white |
-| 4 | Sunset | Deep purple → salmon → gold |
-| 5 | Candy | Hot pink → lavender → mint |
-| 6 | Aurora | Deep navy → emerald → cyan |
-| 7 | Inferno | Black → deep red → bright orange |
-| 8 | White | Cool grey → pure white |
-| 9 | Rose | Dark maroon → rose → blush |
-| 10 | Mermaid | Deep indigo → teal → seafoam |
-| 11 | Vapor | Deep purple → pink → pale cyan |
+| 0 | Fire | Deep red &rarr; amber &rarr; pale yellow |
+| 1 | Plasma | Magenta &rarr; violet &rarr; electric blue |
+| 2 | Neon | Cyan &rarr; electric green |
+| 3 | Teal | Deep teal &rarr; sky blue &rarr; white |
+| 4 | Sunset | Deep purple &rarr; salmon &rarr; gold |
+| 5 | Candy | Hot pink &rarr; lavender &rarr; mint |
+| 6 | Aurora | Deep navy &rarr; emerald &rarr; cyan |
+| 7 | Inferno | Black &rarr; deep red &rarr; bright orange |
+| 8 | White | Cool grey &rarr; pure white |
+| 9 | Rose | Dark maroon &rarr; rose &rarr; blush |
+| 10 | Mermaid | Deep indigo &rarr; teal &rarr; seafoam |
+| 11 | Vapor | Deep purple &rarr; pink &rarr; pale cyan |
 
-### User-defined (index 12+)
+### Your own
 
-Place `.theme` files in `${XDG_CONFIG_HOME:-~/.config}/cava-viz/themes/`. They load alphabetically after the built-ins and cycle with `t`. Adding, editing, or removing a file reloads instantly — no restart needed.
+Put `.theme` files in `${XDG_CONFIG_HOME:-~/.config}/viz/themes/`. They are numbered from 12 in alphabetical order of file name and cycle with `t`. Adding, editing or removing a file takes effect immediately.
 
 ```ini
-# ~/.config/cava-viz/themes/ocean.theme
+# ~/.config/viz/themes/ocean.theme
 name   = Ocean
 
 stop_0 = 0.00  #003366
@@ -226,120 +294,110 @@ stop_2 = 0.75  #00aaee
 stop_3 = 1.00  #00ffcc
 ```
 
-**Rules:** 2–8 stops, pos 0.0–1.0, `#RRGGBB` hex, any order, `name` optional, `#` for comments.
+Each `stop_N` is a position from 0.0 (bottom of a bar) to 1.0 (top) and a `#RRGGBB` colour. Use 2&ndash;8 stops, in any order; `name` is optional and `#` starts a comment. `viz --check` lists the themes it loaded. An example is in [`examples/ocean.theme`](examples/ocean.theme).
 
-**More examples:**
+## Terminal support
 
-```ini
-# synthwave.theme
-name = Synthwave
-stop_0 = 0.00  #1a0033
-stop_1 = 0.35  #8800cc
-stop_2 = 0.65  #ff00aa
-stop_3 = 1.00  #ffffaa
+- **Truecolor** is detected from `COLORTERM`, and from Konsole and VTE (GNOME Terminal and friends). Elsewhere viz falls back to the nearest colours of the 256-colour palette, or to the 8 basic colours.
+- **UTF-8** is required for the bar glyphs (`▁▂▃▄▅▆▇█`). If your locale isn't UTF-8 (typical over SSH or in containers) viz switches to `C.UTF-8` automatically.
+- Use a font that includes the Unicode *Block Elements* range; most monospace fonts do.
 
-# matrix.theme
-name = Matrix
-stop_0 = 0.00  #001100
-stop_1 = 0.50  #00aa00
-stop_2 = 1.00  #ccffcc
+## How it works
 
-# dracula.theme
-name = Dracula
-stop_0 = 0.00  #282a36
-stop_1 = 0.30  #6272a4
-stop_2 = 0.65  #bd93f9
-stop_3 = 1.00  #ff79c6
-```
+1. **Capture**: a PipeWire or PulseAudio thread hands raw samples to the analyser through a lock-free ring buffer; the audio thread never blocks or allocates.
+2. **Analyse**: two FFTs run per frame (a longer window for bass below 100 Hz, a shorter one for the rest). Bins are grouped into log-spaced bars between 50 Hz and `high_cutoff`, then weighted by the CAVA per-bar EQ.
+3. **Smooth**: gravity and integral memory, optional rise smoothing, Monstercat spreading, a noise gate and auto-sensitivity that backs off when bars overshoot.
+4. **Draw**: ncurses renders bars with eighth-block glyphs for sub-cell height, left channel on the left half and right on the right, mirrored so bass is in the middle (in mono both halves show the same signal).
 
----
+## Signals
 
----
+| Signal | Effect |
+|---|---|
+| `SIGUSR1` | Reload config and themes |
+| `SIGINT`, `SIGTERM`, `SIGHUP` | Quit cleanly (`SIGHUP` is what a closing terminal sends) |
+| `SIGWINCH` | Terminal resized (handled automatically) |
 
-## File Locations
+## Files
 
 Follows the [XDG Base Directory spec](https://specifications.freedesktop.org/basedir-spec/latest/):
 
 | Path | Purpose |
 |---|---|
-| `${XDG_CONFIG_HOME:-~/.config}/cava-viz/config` | Main configuration |
-| `${XDG_CONFIG_HOME:-~/.config}/cava-viz/themes/` | User `.theme` files |
-| `${XDG_STATE_HOME:-~/.local/state}/cava-viz/state` | Last-used audio source |
+| `${XDG_CONFIG_HOME:-~/.config}/viz/config` | Configuration |
+| `${XDG_CONFIG_HOME:-~/.config}/viz/themes/` | Your `.theme` files |
+| `${XDG_STATE_HOME:-~/.local/state}/viz/state` | Last-used audio source |
 
-Override `XDG_CONFIG_HOME` or `XDG_STATE_HOME` to relocate everything.
-
-The directory is still called `cava-viz` (the project's earlier name) so existing configs and themes keep working after the rename to `viz`.
-
----
+Settings from the project's earlier name (`cava-viz/` in those two locations) are moved to `viz/` automatically on first launch.
 
 ## Troubleshooting
 
-**Bars are flat / no movement**
+Start with `viz --check`: it prints the resolved paths, your settings, the detected monitor and the themes it loaded.
+
+**The bars don't move**
 
 ```bash
-viz --list-sources          # see what's available
-viz --check                 # validate the whole setup
-viz -s "$(pactl get-default-sink).monitor"   # force the default monitor
+viz --list-sources                                # is anything listed?
+viz -s "$(pactl get-default-sink).monitor"        # force the default monitor
+systemctl --user status pipewire                  # is the server running?
 ```
 
-Make sure PipeWire or PulseAudio is running: `systemctl --user status pipewire`
+Make sure audio is actually playing through the *default* output.
 
-**All bars show `▁` (minimum) even with music playing**
+**It shows my microphone / the wrong device**
 
-The monitor source captured silence. Check your default sink:
-```bash
-pactl get-default-sink
-pactl list short sources | grep monitor
-```
+Without `-M` viz follows the default output's monitor. Use `viz --list-sources` and pick one with `-s`.
 
-**Terminal shows boxes instead of block characters**
+**Everything is a flat line of `▁`**
 
-Install a font with Unicode block element support:
-```bash
-sudo pacman -S ttf-jetbrains-mono-nerd   # Arch
-sudo apt install fonts-jetbrains-mono    # Debian/Ubuntu
-```
+The source is silent. Check `pactl get-default-sink` and `pactl list short sources | grep monitor`.
 
-**Gradient looks flat / only a few colors**
+**Boxes or garbled characters instead of bars**
 
-Your terminal doesn't support truecolor. Check `$COLORTERM`:
-```bash
-echo $COLORTERM   # should say "truecolor" or "24bit"
-```
-Switch to a truecolor terminal: Kitty, WezTerm, Alacritty, or a modern Konsole/GNOME Terminal.
+Use a font with Unicode block characters and make sure your terminal is set to UTF-8. Over SSH or in a container try `LANG=C.UTF-8 viz`.
 
-**Waybar module shows nothing**
+**The gradient looks banded or only a few colours**
 
-Test the command directly:
-```bash
-```
-If it prints `{"text":"..."}` lines, the format is correct — check your Waybar config JSON and `"return-type": "json"`.
+Your terminal may not support truecolor: check that `echo $COLORTERM` prints `truecolor` or `24bit`. Kitty, WezTerm, Alacritty, Konsole, GNOME Terminal and most modern terminals do.
 
----
+**`pkill -USR1 -x viz` does nothing**
 
-## Contributing
+The process name is `viz`; check with `pgrep -x viz`.
+
+## Development
 
 ```bash
-# Build with tests
-./install.sh --test
+./install.sh --test                      # build and run the tests
+cd build && ctest --output-on-failure    # or run them directly
 
-# Run individual test suites
-cd build && ctest --output-on-failure
-
-# Format everything (needs clang-format-18; same version CI uses)
-scripts/format.sh
-scripts/format.sh --check      # dry run, non-zero exit if anything would change
-
-# Lint
-clang-tidy -p build src/*.cpp
+scripts/format.sh                        # format everything (clang-format-18)
+scripts/format.sh --check                # dry run; non-zero if anything would change
+clang-tidy -p build src/*.cpp            # lint
 ```
 
-If the **Format** check fails in CI, the quickest fix is *Actions → Format code → Run workflow*: it formats the branch with the exact clang-format CI uses and commits the result.
+The test suites (`ctest`) cover the config parser, user themes, the FFT pipeline, audio helpers and text utilities. CI (`.github/workflows/ci.yml`) runs a formatting check, clang-tidy and a build plus tests in Release and in Debug with AddressSanitizer/UBSan; another workflow builds with each audio backend on its own.
 
-The CI pipeline (`.github/workflows/ci.yml`) runs a formatting check, lint, and build + tests (Release and Debug+ASan, via `ctest`: config, user_theme, fft_processor, audio_utils and text_utils suites) on every push and pull request.
+If the **Format** check fails, run *Actions &rarr; Format code &rarr; Run workflow*: it formats the branch with the same clang-format as CI and commits the result.
 
----
+```text
+src/
+  main.cpp               arguments, main loop, reconnect watchdog, signals
+  fft_processor.*        CAVA analysis: FFT, EQ, smoothing, auto-sensitivity
+  renderer.*             ncurses drawing, themes, colour handling
+  config.*               config + state files, atomic saves, migration
+  user_theme.*           .theme parser
+  audio_capture.h        capture interface
+  pipewire_capture.*     PipeWire backend
+  pulse_capture.*        PulseAudio backend
+  audio_utils.*          backend selection, source discovery
+  text_utils.*           UTF-8 helpers, locale setup
+  beat_detect.h          beat-flash hysteresis
+tests/                   unit tests (run by ctest)
+scripts/                 format.sh, install-prebuilt.sh
+completions/ man/ examples/
+```
 
-## License
+## Credits and license
 
-[MIT](LICENSE)
+viz is a C++ port of the analysis algorithm from [CAVA](https://github.com/karlstav/cava) by Karl Stavestrand (MIT).
+
+viz itself is released under the [MIT license](LICENSE). It links against [FFTW](https://www.fftw.org/), which is licensed under the GPL, so a binary you distribute must also satisfy FFTW's license terms.
