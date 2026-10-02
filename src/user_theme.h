@@ -5,7 +5,7 @@
 // ── User-defined gradient theme
 // ───────────────────────────────────────────────
 //
-// A .theme file lives in ~/.config/cava-viz/themes/ and looks like:
+// A .theme file lives in ~/.config/viz/themes/ and looks like:
 //
 //   # My cool theme
 //   name   = Ocean
@@ -34,7 +34,7 @@ struct UserTheme {
 };
 
 // Returns the path to the user themes directory.
-// Derived from the main config path, e.g. ~/.config/cava-viz/themes
+// Derived from the main config path, e.g. ~/.config/viz/themes
 std::string themesDir();
 
 // Loads all *.theme files from themesDir().

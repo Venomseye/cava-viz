@@ -12,7 +12,7 @@ dual-channel FFT with Monstercat smoothing and autosensitivity, and renders
 animated bar graphs in ncurses with truecolor gradients.
 .PP
 User-defined themes can be placed in
-.I ~/.config/cava-viz/themes/
+.I ~/.config/viz/themes/
 as
 .I .theme
 files. The configuration file is reloaded live whenever it changes on disk,
@@ -101,7 +101,7 @@ n|Toggle auto-mono (collapse stereo when L \[~=] R)
 The configuration file is created on first run at:
 .PP
 .RS
-.I ${XDG_CONFIG_HOME:-~/.config}/cava-viz/config
+.I ${XDG_CONFIG_HOME:-~/.config}/viz/config
 .RE
 .PP
 Edit it while the visualizer is running; changes are reloaded instantly via
@@ -146,7 +146,7 @@ Place
 files in:
 .PP
 .RS
-.I ${XDG_CONFIG_HOME:-~/.config}/cava-viz/themes/
+.I ${XDG_CONFIG_HOME:-~/.config}/viz/themes/
 .RE
 .PP
 Files are loaded in alphabetical filename order and cycle after the
@@ -189,13 +189,13 @@ are comments.
 .RE
 .SH FILES
 .TP
-.I ${XDG_CONFIG_HOME:-~/.config}/cava-viz/config
+.I ${XDG_CONFIG_HOME:-~/.config}/viz/config
 Main configuration file.
 .TP
-.I ${XDG_CONFIG_HOME:-~/.config}/cava-viz/state
+.I ${XDG_STATE_HOME:-~/.local/state}/viz/state
 Persists the last-used audio source across restarts.
 .TP
-.I ${XDG_CONFIG_HOME:-~/.config}/cava-viz/themes/
+.I ${XDG_CONFIG_HOME:-~/.config}/viz/themes/
 Directory for user-defined
 .I .theme
 files.

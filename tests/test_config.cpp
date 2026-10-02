@@ -468,6 +468,110 @@ static void testCliOverridesNotPersisted() {
              r3.theme != 7, true);
 }
 
+// ── Migration from the pre-rename "cava-viz" directories ─────────────────────
+static void testLegacyMigration() {
+  printf("\n[migration: cava-viz -> viz]\n");
+
+  // New paths use "viz".
+  {
+    TempDir td;
+    check_bool("config path ends in /viz/config",
+               Config::configPath().find("/viz/config") != std::string::npos &&
+                   Config::configPath().find("cava-viz") == std::string::npos,
+               true);
+    check_bool("state path ends in /viz/state",
+               Config::statePath().find("/viz/state") != std::string::npos &&
+                   Config::statePath().find("cava-viz") == std::string::npos,
+               true);
+  }
+
+  // Old settings, themes and state are carried over intact.
+  {
+    TempDir td;
+    const fs::path cfg_old = td.path / "config" / "cava-viz";
+    const fs::path st_old = td.path / "state" / "cava-viz";
+    fs::create_directories(cfg_old / "themes");
+    fs::create_directories(st_old);
+    { std::ofstream(cfg_old / "config") << "theme = 5\n# keep me\n"; }
+    { std::ofstream(cfg_old / "themes" / "mine.theme") << "name = Mine\n"; }
+    { std::ofstream(st_old / "state") << "last_source = my.monitor\n"; }
+
+    check_int("two directories migrated", Config::migrateLegacyDirs(), 2);
+    check_bool("old config dir is gone", !fs::exists(cfg_old), true);
+    check_bool("old state dir is gone", !fs::exists(st_old), true);
+    check_bool("user theme file moved with it",
+               fs::exists(td.path / "config" / "viz" / "themes" / "mine.theme"),
+               true);
+
+    Config c;
+    check_bool("config loads from the new location", c.load(), true);
+    check_int("migrated setting is preserved", c.theme, 5);
+    c.loadState();
+    check_bool("state loads from the new location",
+               c.last_source == "my.monitor", true);
+    check_bool("comments in migrated config preserved",
+               slurp(Config::configPath()).find("# keep me") !=
+                   std::string::npos,
+               true);
+
+    check_int("second call is a no-op", Config::migrateLegacyDirs(), 0);
+  }
+
+  // If viz/ already exists it always wins and cava-viz/ is left untouched.
+  {
+    TempDir td;
+    const fs::path cfg_old = td.path / "config" / "cava-viz";
+    const fs::path cfg_new = td.path / "config" / "viz";
+    fs::create_directories(cfg_old);
+    fs::create_directories(cfg_new);
+    { std::ofstream(cfg_old / "config") << "theme = 9\n"; }
+    { std::ofstream(cfg_new / "config") << "theme = 2\n"; }
+
+    check_int("nothing moved when viz/ exists", Config::migrateLegacyDirs(), 0);
+    Config c;
+    c.load();
+    check_int("new location wins", c.theme, 2);
+    check_bool("legacy dir left untouched",
+               fs::exists(cfg_old / "config"), true);
+  }
+
+  // Nothing to migrate: no-op and no directories invented.
+  {
+    TempDir td;
+    check_int("fresh install: nothing to do", Config::migrateLegacyDirs(), 0);
+    check_bool("no viz dir created by migration",
+               !fs::exists(td.path / "config" / "viz"), true);
+  }
+
+  // A symlinked legacy dir (dotfile manager) moves as a symlink: the target
+  // and its contents are not copied or deleted.
+  {
+    TempDir td;
+    const fs::path real = td.path / "dotfiles" / "viz-config";
+    fs::create_directories(real);
+    { std::ofstream(real / "config") << "theme = 7\n"; }
+    fs::create_directories(td.path / "config");
+    fs::create_directory_symlink(real, td.path / "config" / "cava-viz");
+
+    check_int("symlinked dir migrated", Config::migrateLegacyDirs(), 1);
+    check_bool("it is still a symlink at the new name",
+               fs::is_symlink(td.path / "config" / "viz"), true);
+    check_bool("dotfiles target untouched", fs::exists(real / "config"), true);
+    Config c;
+    c.load();
+    check_int("config readable through the symlink", c.theme, 7);
+  }
+
+  // A dangling legacy symlink is ignored rather than moved.
+  {
+    TempDir td;
+    fs::create_directories(td.path / "config");
+    fs::create_directory_symlink(td.path / "nowhere",
+                                 td.path / "config" / "cava-viz");
+    check_int("dangling symlink ignored", Config::migrateLegacyDirs(), 0);
+  }
+}
+
 int main() {
   printf("viz config test suite\n");
   printf("===========================\n");
@@ -482,6 +586,7 @@ int main() {
   testAtomicSave();
   testSymlinkedConfig();
   testCliOverridesNotPersisted();
+  testLegacyMigration();
 
   printf("\n===========================\n");
   printf("Results: %d/%d passed", tests_run - tests_failed, tests_run);

@@ -37,8 +37,13 @@ struct Config {
   int fps = 60; // 10-240
 
   // ── Paths ─────────────────────────────────────────────────────────────────
-  static std::string configPath(); // ~/.config/cava-viz/config
-  static std::string statePath();  // ~/.local/state/cava-viz/state
+  static std::string configPath(); // ~/.config/viz/config
+  static std::string statePath();  // ~/.local/state/viz/state
+
+  /// Move the pre-rename ~/.config/cava-viz and ~/.local/state/cava-viz to
+  /// their new "viz" names (only when the new one doesn't exist yet).
+  /// Call once at startup, before load().  Returns how many were moved.
+  static int migrateLegacyDirs();
 
   // ── Command-line overrides (-t, -f) ───────────────────────────────────────
   // These apply to the current session only.  While a flag is set, save()

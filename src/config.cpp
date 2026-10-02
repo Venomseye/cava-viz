@@ -153,10 +153,34 @@ void Config::inheritCliOverrides(const Config &prev) {
 }
 
 std::string Config::configPath() {
-  return xdgBase("XDG_CONFIG_HOME", "/.config") + "/cava-viz/config";
+  return xdgBase("XDG_CONFIG_HOME", "/.config") + "/viz/config";
 }
 std::string Config::statePath() {
-  return xdgBase("XDG_STATE_HOME", "/.local/state") + "/cava-viz/state";
+  return xdgBase("XDG_STATE_HOME", "/.local/state") + "/viz/state";
+}
+
+// ── One-time migration from the pre-rename "cava-viz" directories ───────────
+// Moves <base>/cava-viz -> <base>/viz when the new directory does not exist
+// yet.  rename() on a directory in the same parent is atomic and keeps its
+// contents (config, themes/, state) and permissions; a symlinked directory
+// (dotfile managers) moves as the symlink.  If the new directory already
+// exists, nothing is touched: it always wins.
+static bool moveLegacyDir(const std::string &base) {
+  const std::string from = base + "/cava-viz";
+  const std::string to = base + "/viz";
+  struct stat st {};
+  if (lstat(to.c_str(), &st) == 0)
+    return false; // new location already present
+  if (stat(from.c_str(), &st) != 0 || !S_ISDIR(st.st_mode))
+    return false; // nothing to migrate (or a dangling symlink)
+  return rename(from.c_str(), to.c_str()) == 0;
+}
+
+int Config::migrateLegacyDirs() {
+  int moved = 0;
+  moved += moveLegacyDir(xdgBase("XDG_CONFIG_HOME", "/.config")) ? 1 : 0;
+  moved += moveLegacyDir(xdgBase("XDG_STATE_HOME", "/.local/state")) ? 1 : 0;
+  return moved;
 }
 
 static bool parseKV(const char *line, char key[64], char val[1024]) {

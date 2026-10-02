@@ -95,28 +95,33 @@ for DATA_DIR in "${INSTALL_PREFIX}/share/viz" \
 done
 
 # ── User config ───────────────────────────────────────────────────────────────
-CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/cava-viz"
-if [ -d "$CONFIG_DIR" ]; then
-    echo ""
-    if confirm "Remove saved config at $CONFIG_DIR?"; then
-        rm -rf "$CONFIG_DIR"
-        ok "Removed config (themes, settings)."
-    else
-        info "Config kept at $CONFIG_DIR"
+# "cava-viz" is the pre-rename location, still present if viz never ran again.
+for CONFIG_DIR in "${XDG_CONFIG_HOME:-$HOME/.config}/viz" \
+                  "${XDG_CONFIG_HOME:-$HOME/.config}/cava-viz"; do
+    if [ -d "$CONFIG_DIR" ]; then
+        echo ""
+        if confirm "Remove saved config at $CONFIG_DIR?"; then
+            rm -rf "$CONFIG_DIR"
+            ok "Removed config (themes, settings)."
+        else
+            info "Config kept at $CONFIG_DIR"
+        fi
     fi
-fi
+done
 
 # ── User state ────────────────────────────────────────────────────────────────
-STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/cava-viz"
-if [ -d "$STATE_DIR" ]; then
-    echo ""
-    if confirm "Remove saved state at $STATE_DIR?"; then
-        rm -rf "$STATE_DIR"
-        ok "Removed state (last audio source)."
-    else
-        info "State kept at $STATE_DIR"
+for STATE_DIR in "${XDG_STATE_HOME:-$HOME/.local/state}/viz" \
+                 "${XDG_STATE_HOME:-$HOME/.local/state}/cava-viz"; do
+    if [ -d "$STATE_DIR" ]; then
+        echo ""
+        if confirm "Remove saved state at $STATE_DIR?"; then
+            rm -rf "$STATE_DIR"
+            ok "Removed state (last audio source)."
+        else
+            info "State kept at $STATE_DIR"
+        fi
     fi
-fi
+done
 
 echo ""
 echo -e "  ${C_BLD}viz has been uninstalled.${C_RST}"

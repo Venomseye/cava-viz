@@ -207,6 +207,11 @@ int main(int argc, char *argv[]) {
   sigaction(SIGHUP, &sa, nullptr);  // terminal closed -> clean shutdown
   sigaction(SIGUSR1, &sa, nullptr); // live reload: pkill -USR1 -x viz
 
+  // Settings used to live in .../cava-viz/ (the project's former name).
+  if (Config::migrateLegacyDirs() > 0)
+    std::fprintf(stderr,
+                 "viz: moved your settings from \"cava-viz\" to \"viz\"\n");
+
   Config cfg;
   cfg.load();
   cfg.loadState();
